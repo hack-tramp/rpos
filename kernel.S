@@ -1,6 +1,6 @@
-// kernel.S - Complete kernel with buddy allocator, pipes, and filesystem
+// kernel.S - Complete kernel with buddy allocator, pipes, filesystem, and USB
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
-// FIXED: Process creation, FD validation, resource cleanup
+// FULLY INTEGRATED with USB subsystem
 
 .section ".vectors"
 .globl _start
@@ -183,6 +183,15 @@ clear_bss:
     bl pipe_init
     bl fs_init
     
+    // ========== INITIALIZE USB ==========
+    ldr r0, __framebuffer_info
+    ldr r1, [r0]
+    ldr r2, [r0, #4]
+    ldr r3, =usb_start_msg
+    bl fb_print_string
+    
+    bl usb_init
+    
     // ========== ENABLE INTERRUPTS ==========
     mrs r0, cpsr
     bic r0, r0, #I_BIT          // Clear I bit (enable IRQ)
@@ -264,7 +273,7 @@ init_lists:
     
 init_done:
     // Add entire heap as one large block
-    mov r0, r5                        // Start of heap data
+    ldr r0, =__heap_start
     ldr r1, buddy_size
     ldr r2, buddy_bitmap_size
     sub r1, r1, r2                     // Subtract bitmap size
@@ -1289,7 +1298,7 @@ slot_found:
     add r0, r0, #STACK_SIZE
     str r0, [r4, r5, lsl #6, +PCB_SP]
     
-    // Clear FD table (use r8 as zero)
+    // Clear FD table
     add r8, r4, r5, lsl #6
     add r8, #64                        // FD table starts at offset 64
     mov r9, #0
@@ -1304,29 +1313,30 @@ clear_fd_loop:
     
 clear_fd_done:
     // Open stdin (fd 0), stdout (fd 1), stderr (fd 2) for every process
+    sub sp, #4
+    
     // Open stdin
     mov r0, #'0'
-    strb r0, [sp, #-1]!
+    strb r0, [sp]
     mov r0, sp
     mov r1, #0
     bl fs_open
-    add sp, #1
     
     // Open stdout
     mov r0, #'1'
-    strb r0, [sp, #-1]!
+    strb r0, [sp]
     mov r0, sp
     mov r1, #0
     bl fs_open
-    add sp, #1
     
     // Open stderr
     mov r0, #'2'
-    strb r0, [sp, #-1]!
+    strb r0, [sp]
     mov r0, sp
     mov r1, #0
     bl fs_open
-    add sp, #1
+    
+    add sp, #4
     
     mov r0, r7                        // Return PID
     pop {r4-r11, pc}
@@ -1379,6 +1389,8 @@ run_process:
     movs pc, lr
 
 idle_loop:
+    // Check for USB devices periodically
+    bl usb_check_root_port
     wfi
     b idle_loop
 
@@ -1521,25 +1533,32 @@ irq_handler:
     add r0, #IRQ_PENDING1
     ldr r1, [r0]
     
-    tst r1, #2
-    beq irq_unknown
+    tst r1, #2                      // Timer interrupt?
+    beq check_usb_irq
     
-    // Acknowledge timer
+    // Handle timer interrupt
     ldr r0, =PERIPHERAL_BASE
     add r0, #TIMER_BASE
     mov r1, #2
     str r1, [r0, #TIMER_CS]
-    
-    // Set next timer
     ldr r1, [r0, #TIMER_CLO]
     ldr r2, =100000
     add r1, r1, r2
     str r1, [r0, #TIMER_C1]
-    
-    // Yield to next process
     bl scheduler_yield
+    b irq_done
+
+check_usb_irq:
+    tst r1, #0x00000200             // Bit 9 (IRQ 9) for USB
+    beq irq_unknown
     
+    bl usb_handle_irq
+    b irq_done
+
 irq_unknown:
+    // Handle unknown interrupt (ignore)
+
+irq_done:
     pop {r0-r12, lr}
     subs pc, lr, #4
 
@@ -1781,15 +1800,6 @@ loop:
     svc 0
     b loop
 
-.section ".rodata"
-welcome_msg:        .asciz "Kernel booted successfully!\n"
-pipe_test_msg:      .asciz "Hello pipe!"
-received_msg:       .asciz "Received: "
-newline_msg:        .asciz "Init running\n"
-
-.section ".data"
-buffer:             .space 64, 0
-
 // ========== DATA SECTION ==========
 .section ".data"
 .align 4
@@ -1798,9 +1808,19 @@ __fb_info:              .space 16, 0
 __cursor_x:             .word 0
 __cursor_y:             .word 0
 
-// ========== STACKS SECTION ==========
+// ========== RODATA SECTION ==========
+.section ".rodata"
+welcome_msg:        .asciz "Kernel booted successfully!\n"
+pipe_test_msg:      .asciz "Hello pipe!"
+received_msg:       .asciz "Received: "
+newline_msg:        .asciz "Init running\n"
+usb_start_msg:      .asciz "USB: Starting...\n"
+
+// ========== BSS SECTION ==========
 .section ".bss"
 .align 4
+buffer:             .space 64, 0
+
 __irq_stack_bottom:
     .space STACK_SIZE_IRQ
 __irq_stack_top:
