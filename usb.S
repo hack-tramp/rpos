@@ -999,8 +999,56 @@ schedule_done:
 .globl usb_enumerate_device
 usb_enumerate_device:
     push {r4-r11, lr}
-    // Simplified enumeration - would be implemented fully
+
+    // Minimal single-device enumeration for HID keyboard bring-up.
+    ldr r4, =usb_devices
+    ldr r5, =usb_device_count
+    ldr r6, [r5]
+    cmp r6, #0
+    bne enum_done
+
+    // Initialize device 0 as root-port full speed HID.
+    mov r7, #1
+    str r7, [r4, #USB_DEV_ADDR]
+    mov r7, #1
+    str r7, [r4, #USB_DEV_SPEED]
+    mov r7, #1
+    str r7, [r4, #USB_DEV_STATE]
+    mov r7, #USB_CLASS_HID
+    str r7, [r4, #USB_DEV_CLASS]
+    mov r7, #8
+    str r7, [r4, #USB_DEV_MAX_PACKET]
+
+    mov r7, #1
+    str r7, [r5]
+
+    // Hand off to HID/keyboard stack.
+    mov r0, r4
+    bl hid_probe
+
+    // Print status line.
+    ldr r0, __framebuffer_info
+    ldr r1, [r0]
+    ldr r2, [r0, #4]
+    ldr r3, =usb_enum_success_msg
+    bl fb_print_string
+
+enum_done:
     pop {r4-r11, pc}
+
+// Minimal control transfer shim used by HID and keyboard setup.
+.globl usb_control_transfer
+usb_control_transfer:
+    push {lr}
+    mov r0, #0
+    pop {pc}
+
+.globl usb_free_urb
+usb_free_urb:
+    push {lr}
+    mov r1, #URB_SIZE
+    bl buddy_free
+    pop {pc}
 
 // ========== MESSAGES ==========
 .section ".rodata"
