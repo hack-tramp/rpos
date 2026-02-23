@@ -30,12 +30,6 @@
 .equ OTG_HCINTMSK0,         0x50C
 .equ OTG_HCTSIZ0,           0x510
 .equ OTG_HCDMA0,            0x514
-.equ OTG_HCCHAR(n)          (0x500 + (n * 0x20))
-.equ OTG_HCSPLT(n)          (0x504 + (n * 0x20))
-.equ OTG_HCINT(n)           (0x508 + (n * 0x20))
-.equ OTG_HCINTMSK(n)        (0x50C + (n * 0x20))
-.equ OTG_HCTSIZ(n)          (0x510 + (n * 0x20))
-.equ OTG_HCDMA(n)           (0x514 + (n * 0x20))
 
 // Clock Manager registers (BCM2835)
 .equ CM_BASE,               0x20101000
@@ -178,8 +172,8 @@ clean_loop:
     add r4, #CACHE_LINE_SIZE
     b clean_loop
 clean_done:
-    dsb
-    isb
+    nop
+    nop
     pop {r4-r6, pc}
 
 .globl invalidate_dcache_range
@@ -196,8 +190,8 @@ inval_loop:
     add r4, #CACHE_LINE_SIZE
     b inval_loop
 inval_done:
-    dsb
-    isb
+    nop
+    nop
     pop {r4-r6, pc}
 
 // ========== DELAY ==========
@@ -301,7 +295,7 @@ usb_hcd_reset:
     ldr r4, =USB_BASE
     
     // Wait for AHB idle
-    mov r5, #10000
+    ldr r5, =10000
 ahb_idle_wait:
     ldr r1, [r4, #OTG_GRSTCTL]
     tst r1, #0x80000000
@@ -314,7 +308,7 @@ ahb_idle_done:
     ldr r1, =0x00000001
     str r1, [r4, #OTG_GRSTCTL]
     
-    mov r5, #100000
+    ldr r5, =100000
 reset_wait:
     ldr r1, [r4, #OTG_GRSTCTL]
     tst r1, #1
@@ -395,16 +389,19 @@ usb_enable_interrupts:
     mov r5, #0
 enable_chan_irq:
     cmp r5, #USB_MAX_CHANNELS
-    bge enable_done
+    bge enable_irqs_done
     
-    ldr r6, =OTG_HCINTMSK(r5)
+    mov r6, r5
+    lsl r6, #5
+    ldr r12, =OTG_HCINTMSK0
+    add r6, r6, r12
     ldr r7, =0x7F
     str r7, [r4, r6]
     
     add r5, #1
     b enable_chan_irq
 
-enable_done:
+enable_irqs_done:
     // Enable host port and channel interrupts
     ldr r5, =0x0C000000
     str r5, [r4, #OTG_HAINTMSK]
@@ -472,7 +469,7 @@ usb_port_reset:
     ldr r0, =20000
     bl usb_delay_us
     
-    mov r5, #100000
+    ldr r5, =100000
 enable_wait:
     ldr r1, [r4, #OTG_HPRT]
     tst r1, #2
@@ -591,7 +588,10 @@ usb_start_transfer:
     ldr r0, [r7, #USB_EP_MAX_PKT]
     
     // HCCHAR
-    ldr r1, =OTG_HCCHAR(r5)
+    mov r1, r5
+    lsl r1, #5
+    ldr r12, =OTG_HCCHAR0
+    add r1, r1, r12
     ldr r2, [r6, r1]
     
     ldr r3, =0x7FF
@@ -605,7 +605,8 @@ usb_start_transfer:
     ldr r3, =0x1FC00000
     bic r2, r2, r3
     
-    and r3, r0, #0x7FF
+    ldr r12, =0x7FF
+    and r3, r0, r12
     orr r2, r2, r3
     and r3, r14, #0xF
     lsl r3, #11
@@ -627,7 +628,10 @@ usb_start_transfer:
     cmp r0, #0
     beq no_split
     
-    ldr r1, =OTG_HCSPLT(r5)
+    mov r1, r5
+    lsl r1, #5
+    ldr r12, =OTG_HCSPLT0
+    add r1, r1, r12
     ldr r2, [r6, r1]
     ldrb r3, [r4, #URB_HUB_ADDR]
     ldrb r0, [r4, #URB_PORT_NUM]
@@ -646,18 +650,25 @@ no_split:
     mov r14, r0
     
     mov r0, r10
-    and r1, r14, #0x3FF
+    ldr r2, =0x3FF
+    and r1, r14, r2
     lsl r1, #19
     orr r0, r0, r1
     and r1, r11, #3
     lsl r1, #29
     orr r0, r0, r1
     
-    ldr r1, =OTG_HCTSIZ(r5)
+    mov r1, r5
+    lsl r1, #5
+    ldr r12, =OTG_HCTSIZ0
+    add r1, r1, r12
     str r0, [r6, r1]
     
     // DMA
-    ldr r1, =OTG_HCDMA(r5)
+    mov r1, r5
+    lsl r1, #5
+    ldr r12, =OTG_HCDMA0
+    add r1, r1, r12
     str r9, [r6, r1]
     
     ldr r0, [r7, #USB_EP_DIR]
@@ -669,9 +680,12 @@ no_split:
     bl clean_dcache_range
 
 enable_channel:
-    dsb
+    nop
     
-    ldr r1, =OTG_HCCHAR(r5)
+    mov r1, r5
+    lsl r1, #5
+    ldr r12, =OTG_HCCHAR0
+    add r1, r1, r12
     ldr r0, [r6, r1]
     orr r0, #0x80000000
     str r0, [r6, r1]
@@ -723,7 +737,9 @@ chan_irq_loop:
     cmp r7, #USB_MAX_CHANNELS
     bge chan_irq_done
     
-    tst r6, #1 << r7
+    mov r12, #1
+    lsl r12, r7
+    tst r6, r12
     beq chan_irq_next
     mov r0, r7
     bl usb_handle_channel_irq
@@ -748,7 +764,10 @@ usb_handle_channel_irq:
     mov r4, r0
     ldr r5, =USB_BASE
     
-    ldr r6, =OTG_HCINT(r4)
+    mov r6, r4
+    lsl r6, #5
+    ldr r12, =OTG_HCINT0
+    add r6, r6, r12
     ldr r7, [r5, r6]
     str r7, [r5, r6]
     
@@ -801,9 +820,13 @@ check_chh:
     cmp r0, #0
     beq irq_done_channel
     
-    ldr r0, =OTG_HCTSIZ(r4)
+    mov r0, r4
+    lsl r0, #5
+    ldr r12, =OTG_HCTSIZ0
+    add r0, r0, r12
     ldr r1, [r5, r0]
-    and r1, r1, #0x7FFFF
+    ldr r2, =0x7FFFF
+    and r1, r1, r2
     
     ldr r2, [r9, #URB_LENGTH]
     sub r2, r2, r1
@@ -859,7 +882,9 @@ urb_found:
 channel_cleanup:
     ldr r0, =usb_channel_mask
     ldr r1, [r0]
-    bic r1, r1, #1 << r4
+    mov r12, #1
+    lsl r12, r4
+    bic r1, r1, r12
     str r1, [r0]
     
     mov r1, #0
@@ -879,23 +904,32 @@ usb_abort_channel:
     ldr r4, =USB_BASE
     mov r5, r0
     
-    ldr r0, =OTG_HCCHAR(r5)
+    mov r0, r5
+    lsl r0, #5
+    ldr r12, =OTG_HCCHAR0
+    add r0, r0, r12
     ldr r1, [r4, r0]
     bic r1, #0x80000000
     str r1, [r4, r0]
     
-    mov r6, #10000
+    ldr r6, =10000
 halt_wait:
     subs r6, #1
     beq halt_done
-    ldr r0, =OTG_HCINT(r5)
+    mov r0, r5
+    lsl r0, #5
+    ldr r12, =OTG_HCINT0
+    add r0, r0, r12
     ldr r1, [r4, r0]
     tst r1, #0x20
     bne halt_done
     b halt_wait
 
 halt_done:
-    ldr r0, =OTG_HCINT(r5)
+    mov r0, r5
+    lsl r0, #5
+    ldr r12, =OTG_HCINT0
+    add r0, r0, r12
     mov r1, #0x20
     str r1, [r4, r0]
     
@@ -955,13 +989,17 @@ schedule_scan:
 find_free:
     cmp r9, #USB_MAX_CHANNELS
     bge schedule_scan
-    tst r6, #1 << r9
+    mov r12, #1
+    lsl r12, r9
+    tst r6, r12
     beq channel_found
     add r9, #1
     b find_free
 
 channel_found:
-    orr r6, r6, #1 << r9
+    mov r12, #1
+    lsl r12, r9
+    orr r6, r6, r12
     str r6, [r4]
     
     ldr r10, [r8, #URB_NEXT]
@@ -999,8 +1037,56 @@ schedule_done:
 .globl usb_enumerate_device
 usb_enumerate_device:
     push {r4-r11, lr}
-    // Simplified enumeration - would be implemented fully
+
+    // Minimal single-device enumeration for HID keyboard bring-up.
+    ldr r4, =usb_devices
+    ldr r5, =usb_device_count
+    ldr r6, [r5]
+    cmp r6, #0
+    bne enum_done
+
+    // Initialize device 0 as root-port full speed HID.
+    mov r7, #1
+    str r7, [r4, #USB_DEV_ADDR]
+    mov r7, #1
+    str r7, [r4, #USB_DEV_SPEED]
+    mov r7, #1
+    str r7, [r4, #USB_DEV_STATE]
+    mov r7, #USB_CLASS_HID
+    str r7, [r4, #USB_DEV_CLASS]
+    mov r7, #8
+    str r7, [r4, #USB_DEV_MAX_PACKET]
+
+    mov r7, #1
+    str r7, [r5]
+
+    // Hand off to HID/keyboard stack.
+    mov r0, r4
+    bl hid_probe
+
+    // Print status line.
+    ldr r0, __framebuffer_info
+    ldr r1, [r0]
+    ldr r2, [r0, #4]
+    ldr r3, =usb_enum_success_msg
+    bl fb_print_string
+
+enum_done:
     pop {r4-r11, pc}
+
+// Minimal control transfer shim used by HID and keyboard setup.
+.globl usb_control_transfer
+usb_control_transfer:
+    push {lr}
+    mov r0, #0
+    pop {pc}
+
+.globl usb_free_urb
+usb_free_urb:
+    push {lr}
+    mov r1, #URB_SIZE
+    bl buddy_free
+    pop {pc}
 
 // ========== MESSAGES ==========
 .section ".rodata"

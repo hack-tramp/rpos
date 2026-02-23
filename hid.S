@@ -13,27 +13,12 @@
 .equ HID_REQ_GET_IDLE,      0x02
 .equ HID_REQ_GET_PROTOCOL,  0x03
 .equ HID_REQ_SET_REPORT,    0x09
-.equ HID_REQ_SET_IDLE,      0x0A
-.equ HID_REQ_SET_PROTOCOL,  0x0B
 
 // Report types
 .equ HID_REPORT_INPUT,      0x01
 .equ HID_REPORT_OUTPUT,     0x02
 .equ HID_REPORT_FEATURE,    0x03
 
-// HID instance structure (128 bytes)
-.equ HID_DEVICE,            0    // USB device pointer
-.equ HID_INTERFACE,         4    // Interface number
-.equ HID_EP_IN,             8    // Interrupt IN endpoint pointer
-.equ HID_REPORT_SIZE,       12   // Report size in bytes
-.equ HID_REPORT_DESC,       16   // Report descriptor buffer
-.equ HID_STATE,             20   // Driver state
-.equ HID_BUFFER,            24   // Current report buffer
-.equ HID_URB,               28   // Active URB
-.equ HID_CALLBACK,          32   // Input callback
-.equ HID_PRIVATE,           36   // Private data for callback
-.equ HID_IDLE,              40   // Idle rate
-.equ HID_PROTOCOL,          44   // Boot/Report protocol
 .equ HID_SIZE,              128
 
 // HID states
@@ -125,6 +110,10 @@ hid_probe:
     // Start first read
     mov r0, r5
     bl hid_start_read
+
+    // Bind keyboard translation/echo handler when applicable
+    mov r0, r5
+    bl kbd_probe
     
     mov r0, #0
     pop {r4-r11, pc}
@@ -172,7 +161,7 @@ hid_get_descriptor:
     mov r0, #USB_EP_SIZE
     bl buddy_alloc
     cmp r0, #0
-    bep hid_desc_done
+    beq hid_desc_done
     
     mov r6, r0                          // r6 = endpoint
     
@@ -245,16 +234,18 @@ hid_start_read:
     mov r1, r6
     mov r2, r7
     mov r3, r8
-    ldr r4, =hid_read_callback
-    mov r5, r4
+    ldr r10, =hid_read_callback         // callback
+    mov r11, r4                         // private = HID instance
+    mov r4, r10
+    mov r5, r11
     bl usb_alloc_urb
     
     cmp r0, #0
     beq hid_read_done
     
-    str r0, [r4, #HID_URB]
+    str r0, [r11, #HID_URB]
     mov r1, #HID_STATE_READING
-    str r1, [r4, #HID_STATE]
+    str r1, [r11, #HID_STATE]
     
     // Submit URB
     bl usb_submit_urb
@@ -280,16 +271,21 @@ hid_read_callback:
     bne handle_error
     
     // Process the report
-    ldr r0, [r5, #HID_BUFFER]
-    ldr r1, [r4, #URB_ACTUAL]
-    ldr r2, [r5, #HID_CALLBACK]
+    ldr r0, [r5, #HID_CALLBACK]
     
     // Call input handler if registered
-    cmp r2, #0
+    cmp r0, #0
     beq no_callback
-    
+
+    mov r1, r5                          // HID instance
+    ldr r2, [r5, #HID_BUFFER]           // report buffer
+    ldr r3, [r4, #URB_ACTUAL]           // report length
     mov lr, pc
-    bx r2
+    mov r12, r0
+    mov r0, r1
+    mov r1, r2
+    mov r2, r3
+    bx r12
     
 no_callback:
     // Queue raw event for kernel
