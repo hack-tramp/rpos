@@ -1,5 +1,6 @@
 // hid.S - USB HID (Human Interface Device) driver
 // Target: Raspberry Pi 1, works with usb.S and kernel.S
+// FIXED for GNU Assembler syntax
 
 #include "usb_constants.h"
 
@@ -13,11 +14,22 @@
 .equ HID_REQ_GET_IDLE,      0x02
 .equ HID_REQ_GET_PROTOCOL,  0x03
 .equ HID_REQ_SET_REPORT,    0x09
+.equ HID_REQ_SET_IDLE,      0x0A
+.equ HID_REQ_SET_PROTOCOL,  0x0B
 
-// Report types
-.equ HID_REPORT_INPUT,      0x01
-.equ HID_REPORT_OUTPUT,     0x02
-.equ HID_REPORT_FEATURE,    0x03
+// HID instance structure offsets
+.equ HID_DEVICE,            0
+.equ HID_INTERFACE,         4
+.equ HID_EP_IN,             8
+.equ HID_REPORT_SIZE,       12
+.equ HID_REPORT_DESC,       16
+.equ HID_STATE,             20
+.equ HID_BUFFER,            24
+.equ HID_URB,               28
+.equ HID_CALLBACK,          32
+.equ HID_PRIVATE,           36
+.equ HID_IDLE,              40
+.equ HID_PROTOCOL,          44
 
 .equ HID_SIZE,              128
 
@@ -26,6 +38,11 @@
 .equ HID_STATE_IDLE,        1
 .equ HID_STATE_READING,     2
 .equ HID_STATE_ERROR,       3
+
+// Report types
+.equ HID_REPORT_INPUT,      0x01
+.equ HID_REPORT_OUTPUT,     0x02
+.equ HID_REPORT_FEATURE,    0x03
 
 .section ".data"
 .align 4
@@ -99,7 +116,7 @@ hid_probe:
     bge hid_free_all
     
     str r5, [r6, r8, lsl #2]
-    add r8, #1
+    add r8, r8, #1
     str r8, [r7]
     
     // Set idle rate (prevents device from sending reports too fast)
@@ -203,7 +220,7 @@ hid_set_idle:
     mov r0, r6                          // device
     mov r1, #0x21                       // host-to-device, class, interface
     mov r2, #HID_REQ_SET_IDLE
-    mov r3, r5, lsl #8                   // idle rate << 8
+    lsl r3, r5, #8                      // idle rate << 8
     mov r4, #0                          // interface 0
     mov r5, #0                          // wLength = 0
     mov r6, #0                          // no data
@@ -325,7 +342,7 @@ hid_queue_event:
     
     // Calculate next tail
     add r8, r5, #1
-    and r8, #63                         // 64-entry circular buffer
+    and r8, r8, #63                         // 64-entry circular buffer
     
     // Check if buffer full
     cmp r8, r7
@@ -371,8 +388,8 @@ hid_get_key:
     ldr r0, [r8, r5, lsl #2]
     
     // Update head
-    add r5, #1
-    and r5, #63
+    add r5, r5, #1
+    and r5, r5, #63
     str r5, [r4]
     
     pop {r4-r11, pc}
