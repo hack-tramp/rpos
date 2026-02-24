@@ -1,6 +1,7 @@
 // usb.S - Complete USB host stack for Raspberry Pi 1
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
 // FULL VERSION with clock init, PHY setup, and D+ pull-up
+// FIXED for GNU Assembler syntax
 
 // ========== DWC OTG REGISTERS ==========
 .equ USB_BASE,              0x20098000
@@ -30,12 +31,15 @@
 .equ OTG_HCINTMSK0,         0x50C
 .equ OTG_HCTSIZ0,           0x510
 .equ OTG_HCDMA0,            0x514
-.equ OTG_HCCHAR(n)          (0x500 + (n * 0x20))
-.equ OTG_HCSPLT(n)          (0x504 + (n * 0x20))
-.equ OTG_HCINT(n)           (0x508 + (n * 0x20))
-.equ OTG_HCINTMSK(n)        (0x50C + (n * 0x20))
-.equ OTG_HCTSIZ(n)          (0x510 + (n * 0x20))
-.equ OTG_HCDMA(n)           (0x514 + (n * 0x20))
+
+// Macro for indexed registers - GAS compatible
+.equ OTG_HCCHAR,        0x500
+.equ OTG_HCSPLT,        0x504
+.equ OTG_HCINT,         0x508
+.equ OTG_HCINTMSK,      0x50C
+.equ OTG_HCTSIZ,        0x510
+.equ OTG_HCDMA,         0x514
+// Use: ldr r0, =OTG_HCCHAR + (n * 0x20)
 
 // Clock Manager registers (BCM2835)
 .equ CM_BASE,               0x20101000
@@ -169,13 +173,13 @@ clean_dcache_range:
     push {r4-r6, lr}
     bic r4, r0, #(CACHE_LINE_SIZE - 1)
     add r5, r0, r1
-    add r5, #(CACHE_LINE_SIZE - 1)
+    add r5, r5, #(CACHE_LINE_SIZE - 1)
     bic r5, r5, #(CACHE_LINE_SIZE - 1)
 clean_loop:
     cmp r4, r5
     bge clean_done
     mcr p15, 0, r4, c7, c10, 1
-    add r4, #CACHE_LINE_SIZE
+    add r4, r4, #CACHE_LINE_SIZE
     b clean_loop
 clean_done:
     dsb
@@ -187,13 +191,13 @@ invalidate_dcache_range:
     push {r4-r6, lr}
     bic r4, r0, #(CACHE_LINE_SIZE - 1)
     add r5, r0, r1
-    add r5, #(CACHE_LINE_SIZE - 1)
+    add r5, r5, #(CACHE_LINE_SIZE - 1)
     bic r5, r5, #(CACHE_LINE_SIZE - 1)
 inval_loop:
     cmp r4, r5
     bge inval_done
     mcr p15, 0, r4, c7, c6, 1
-    add r4, #CACHE_LINE_SIZE
+    add r4, r4, #CACHE_LINE_SIZE
     b inval_loop
 inval_done:
     dsb
@@ -206,7 +210,7 @@ usb_delay_us:
     push {r4, lr}
     lsl r4, r0, #9
 delay_loop:
-    subs r4, #1
+    subs r4, r4, #1
     bne delay_loop
     pop {r4, pc}
 
@@ -225,17 +229,17 @@ usb_init:
     // Initialize data structures
     ldr r0, =usb_devices
     mov r1, #0
-    ldr r2, =USB_MAX_DEVICES * USB_DEV_SIZE
+    ldr r2, =(USB_MAX_DEVICES * USB_DEV_SIZE)
     bl memset
     
     ldr r0, =usb_endpoints
     mov r1, #0
-    ldr r2, =USB_MAX_ENDPOINTS * USB_EP_SIZE
+    ldr r2, =(USB_MAX_ENDPOINTS * USB_EP_SIZE)
     bl memset
     
     ldr r0, =usb_channels
     mov r1, #0
-    ldr r2, =USB_MAX_CHANNELS * CHAN_SIZE
+    ldr r2, =(USB_MAX_CHANNELS * CHAN_SIZE)
     bl memset
     
     ldr r0, =usb_channel_mask
@@ -260,7 +264,7 @@ usb_init:
     
     // ===== CRITICAL: ENABLE USB CLOCK =====
     ldr r0, =CM_BASE
-    ldr r1, =CM_PASSWD | 0x2000A      // PASSWD + ENABLE + SRC=OSC
+    ldr r1, =(CM_PASSWD | 0x2000A)      // PASSWD + ENABLE + SRC=OSC
     str r1, [r0, #CM_USBCTRL]
     
     ldr r0, =10000
@@ -275,7 +279,7 @@ usb_init:
     // ===== ENABLE D+ PULL-UP (B SESSION VALID) =====
     ldr r0, =USB_BASE
     ldr r1, [r0, #OTG_GOTGCTL]
-    orr r1, #0x00000008                // Bit 3: B Session Valid
+    orr r1, r1, #0x00000008                // Bit 3: B Session Valid
     str r1, [r0, #OTG_GOTGCTL]
     
     ldr r0, =50000
@@ -306,7 +310,7 @@ ahb_idle_wait:
     ldr r1, [r4, #OTG_GRSTCTL]
     tst r1, #0x80000000
     bne ahb_idle_done
-    subs r5, #1
+    subs r5, r5, #1
     bne ahb_idle_wait
 
 ahb_idle_done:
@@ -319,7 +323,7 @@ reset_wait:
     ldr r1, [r4, #OTG_GRSTCTL]
     tst r1, #1
     beq reset_done
-    subs r5, #1
+    subs r5, r5, #1
     bne reset_wait
 
 reset_done:
@@ -336,7 +340,7 @@ usb_hcd_init:
     
     // Force host mode
     ldr r1, [r4, #OTG_GUSBCFG]
-    orr r1, #0x40000000
+    orr r1, r1, #0x40000000
     str r1, [r4, #OTG_GUSBCFG]
     
     ldr r0, =10000
@@ -379,7 +383,7 @@ usb_port_power_on:
     
     ldr r4, =USB_BASE
     ldr r1, [r4, #OTG_HPRT]
-    orr r1, #0x00001000                // Port power (bit 12)
+    orr r1, r1, #0x00001000                // Port power (bit 12)
     str r1, [r4, #OTG_HPRT]
     
     pop {r4-r11, pc}
@@ -397,11 +401,11 @@ enable_chan_irq:
     cmp r5, #USB_MAX_CHANNELS
     bge enable_done
     
-    ldr r6, =OTG_HCINTMSK(r5)
+    ldr r6, =(OTG_HCINTMSK + (r5 * 0x20))
     ldr r7, =0x7F
     str r7, [r4, r6]
     
-    add r5, #1
+    add r5, r5, #1
     b enable_chan_irq
 
 enable_done:
@@ -427,7 +431,7 @@ usb_check_root_port:
     beq already_connected
     
     ldr r1, [r4, #OTG_HPRT]
-    orr r1, #4
+    orr r1, r1, #4
     str r1, [r4, #OTG_HPRT]
     
     ldr r0, __framebuffer_info
@@ -459,14 +463,14 @@ usb_port_reset:
     
     ldr r4, =USB_BASE
     ldr r1, [r4, #OTG_HPRT]
-    orr r1, #0x00000100
+    orr r1, r1, #0x00000100
     str r1, [r4, #OTG_HPRT]
     
     ldr r0, =50000
     bl usb_delay_us
     
     ldr r1, [r4, #OTG_HPRT]
-    bic r1, #0x00000100
+    bic r1, r1, #0x00000100
     str r1, [r4, #OTG_HPRT]
     
     ldr r0, =20000
@@ -477,7 +481,7 @@ enable_wait:
     ldr r1, [r4, #OTG_HPRT]
     tst r1, #2
     bne enable_done
-    subs r5, #1
+    subs r5, r5, #1
     bne enable_wait
 
 enable_done:
@@ -590,8 +594,8 @@ usb_start_transfer:
     ldr r1, [r7, #USB_EP_TYPE]
     ldr r0, [r7, #USB_EP_MAX_PKT]
     
-    // HCCHAR
-    ldr r1, =OTG_HCCHAR(r5)
+    // HCCHAR - using base + offset calculation
+    ldr r1, =(OTG_HCCHAR + (r5 * 0x20))
     ldr r2, [r6, r1]
     
     ldr r3, =0x7FF
@@ -608,16 +612,16 @@ usb_start_transfer:
     and r3, r0, #0x7FF
     orr r2, r2, r3
     and r3, r14, #0xF
-    lsl r3, #11
+    lsl r3, r3, #11
     orr r2, r2, r3
     cmp r2, #1
     orreq r2, r2, #0x8000
     ldr r3, [r7, #USB_EP_TYPE]
-    and r3, #3
-    lsl r3, #18
+    and r3, r3, #3
+    lsl r3, r3, #18
     orr r2, r2, r3
     and r3, r12, #0x7F
-    lsl r3, #22
+    lsl r3, r3, #22
     orr r2, r2, r3
     
     str r2, [r6, r1]
@@ -627,15 +631,15 @@ usb_start_transfer:
     cmp r0, #0
     beq no_split
     
-    ldr r1, =OTG_HCSPLT(r5)
+    ldr r1, =(OTG_HCSPLT + (r5 * 0x20))
     ldr r2, [r6, r1]
     ldrb r3, [r4, #URB_HUB_ADDR]
     ldrb r0, [r4, #URB_PORT_NUM]
-    bic r2, #0xFF
-    orr r2, r3
-    bic r2, #0xFF00
-    orr r2, r0, lsl #8
-    orr r2, #0x80000000
+    bic r2, r2, #0xFF
+    orr r2, r2, r3
+    bic r2, r2, #0xFF00
+    orr r2, r2, r0, lsl #8
+    orr r2, r2, #0x80000000
     str r2, [r6, r1]
     
 no_split:
@@ -647,17 +651,17 @@ no_split:
     
     mov r0, r10
     and r1, r14, #0x3FF
-    lsl r1, #19
+    lsl r1, r1, #19
     orr r0, r0, r1
     and r1, r11, #3
-    lsl r1, #29
+    lsl r1, r1, #29
     orr r0, r0, r1
     
-    ldr r1, =OTG_HCTSIZ(r5)
+    ldr r1, =(OTG_HCTSIZ + (r5 * 0x20))
     str r0, [r6, r1]
     
     // DMA
-    ldr r1, =OTG_HCDMA(r5)
+    ldr r1, =(OTG_HCDMA + (r5 * 0x20))
     str r9, [r6, r1]
     
     ldr r0, [r7, #USB_EP_DIR]
@@ -671,9 +675,9 @@ no_split:
 enable_channel:
     dsb
     
-    ldr r1, =OTG_HCCHAR(r5)
+    ldr r1, =(OTG_HCCHAR + (r5 * 0x20))
     ldr r0, [r6, r1]
-    orr r0, #0x80000000
+    orr r0, r0, #0x80000000
     str r0, [r6, r1]
     
     pop {r4-r11, pc}
@@ -689,11 +693,11 @@ div_loop:
     cmp r3, r1
     blo div_check
     sub r3, r3, r1
-    add r2, #1
+    add r2, r2, #1
     b div_loop
 div_check:
     cmp r3, #0
-    addne r2, #1
+    addne r2, r2, #1
     mov r0, r2
     pop {r2-r4, pc}
 div_ceil_zero:
@@ -723,13 +727,13 @@ chan_irq_loop:
     cmp r7, #USB_MAX_CHANNELS
     bge chan_irq_done
     
-    tst r6, #1 << r7
+    tst r6, #(1 << r7)
     beq chan_irq_next
     mov r0, r7
     bl usb_handle_channel_irq
 
 chan_irq_next:
-    add r7, #1
+    add r7, r7, #1
     b chan_irq_loop
 
 chan_irq_done:
@@ -748,7 +752,7 @@ usb_handle_channel_irq:
     mov r4, r0
     ldr r5, =USB_BASE
     
-    ldr r6, =OTG_HCINT(r4)
+    ldr r6, =(OTG_HCINT + (r4 * 0x20))
     ldr r7, [r5, r6]
     str r7, [r5, r6]
     
@@ -801,7 +805,7 @@ check_chh:
     cmp r0, #0
     beq irq_done_channel
     
-    ldr r0, =OTG_HCTSIZ(r4)
+    ldr r0, =(OTG_HCTSIZ + (r4 * 0x20))
     ldr r1, [r5, r0]
     and r1, r1, #0x7FFFF
     
@@ -811,7 +815,7 @@ check_chh:
     
     ldr r3, [r9, #URB_ENDPOINT]
     ldrb r0, [r9, #URB_PID]
-    eor r0, #2
+    eor r0, r0, #2
     strb r0, [r3, #USB_EP_TOGGLE]
     
     ldr r0, [r3, #USB_EP_DIR]
@@ -859,7 +863,7 @@ urb_found:
 channel_cleanup:
     ldr r0, =usb_channel_mask
     ldr r1, [r0]
-    bic r1, r1, #1 << r4
+    bic r1, r1, #(1 << r4)
     str r1, [r0]
     
     mov r1, #0
@@ -879,23 +883,23 @@ usb_abort_channel:
     ldr r4, =USB_BASE
     mov r5, r0
     
-    ldr r0, =OTG_HCCHAR(r5)
+    ldr r0, =(OTG_HCCHAR + (r5 * 0x20))
     ldr r1, [r4, r0]
-    bic r1, #0x80000000
+    bic r1, r1, #0x80000000
     str r1, [r4, r0]
     
     mov r6, #10000
 halt_wait:
-    subs r6, #1
+    subs r6, r6, #1
     beq halt_done
-    ldr r0, =OTG_HCINT(r5)
+    ldr r0, =(OTG_HCINT + (r5 * 0x20))
     ldr r1, [r4, r0]
     tst r1, #0x20
     bne halt_done
     b halt_wait
 
 halt_done:
-    ldr r0, =OTG_HCINT(r5)
+    ldr r0, =(OTG_HCINT + (r5 * 0x20))
     mov r1, #0x20
     str r1, [r4, r0]
     
@@ -913,7 +917,7 @@ usb_handle_port_irq:
     beq clear_port_irq
     
     ldr r5, [r4, #OTG_HPRT]
-    orr r5, #0x00000004
+    orr r5, r5, #0x00000004
     str r5, [r4, #OTG_HPRT]
     
     ldr r0, =100000
@@ -955,13 +959,13 @@ schedule_scan:
 find_free:
     cmp r9, #USB_MAX_CHANNELS
     bge schedule_scan
-    tst r6, #1 << r9
+    tst r6, #(1 << r9)
     beq channel_found
-    add r9, #1
+    add r9, r9, #1
     b find_free
 
 channel_found:
-    orr r6, r6, #1 << r9
+    orr r6, r6, #(1 << r9)
     str r6, [r4]
     
     ldr r10, [r8, #URB_NEXT]
