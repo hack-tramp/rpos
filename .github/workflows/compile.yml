@@ -1,51 +1,49 @@
 name: Build Raspberry Pi Kernel (Clang)
 
 on:
-push:
-branches: [ main ]
-pull_request:
-branches: [ main ]
-workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
+      - name: Install Clang + LLVM tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm
 
-steps:
-  - name: Checkout repo
-    uses: actions/checkout@v4
+      - name: Build kernel
+        run: |
+          set -e
 
-  - name: Install Clang + LLVM tools
-    run: |
-      sudo apt-get update
-      sudo apt-get install -y clang lld llvm
+          TARGET=armv6-none-eabi
+          CFLAGS="-target $TARGET -march=armv6 -ffreestanding -nostdlib -I."
+          LDFLAGS="-target $TARGET -nostdlib -fuse-ld=lld -Wl,-T,kernel.ld"
 
-  - name: Build kernel
-    run: |
-      set -e
+          # Assemble (with preprocessor)
+          clang $CFLAGS -c -x assembler-with-cpp kernel.S -o kernel.o
+          clang $CFLAGS -c -x assembler-with-cpp usb.S -o usb.o
+          clang $CFLAGS -c -x assembler-with-cpp hid.S -o hid.o
+          clang $CFLAGS -c -x assembler-with-cpp keyboard.S -o keyboard.o
 
-      TARGET=armv6-none-eabi
-      CFLAGS="-target $TARGET -march=armv6 -ffreestanding -nostdlib -I."
-      LDFLAGS="-target $TARGET -nostdlib -fuse-ld=lld -Wl,-T,kernel.ld"
+          # Link
+          clang $LDFLAGS kernel.o usb.o hid.o keyboard.o -o kernel.elf
 
-      # Assemble (with preprocessor)
-      clang $CFLAGS -c -x assembler-with-cpp kernel.S -o kernel.o
-      clang $CFLAGS -c -x assembler-with-cpp usb.S -o usb.o
-      clang $CFLAGS -c -x assembler-with-cpp hid.S -o hid.o
-      clang $CFLAGS -c -x assembler-with-cpp keyboard.S -o keyboard.o
+          # Create raw binary for Pi boot
+          llvm-objcopy -O binary kernel.elf kernel.img
 
-      # Link
-      clang $LDFLAGS kernel.o usb.o hid.o keyboard.o -o kernel.elf
-
-      # Create raw binary for Pi boot
-      llvm-objcopy -O binary kernel.elf kernel.img
-
-  - name: Upload build artifacts
-    uses: actions/upload-artifact@v4
-    with:
-      name: rpos-build
-      path: |
-        kernel.elf
-        kernel.img
-
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpos-build
+          path: |
+            kernel.elf
+            kernel.img
