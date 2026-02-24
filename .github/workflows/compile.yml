@@ -1,4 +1,4 @@
-name: Build Raspberry Pi Kernel (Clang)
+name: Build Raspberry Pi Kernel (GNU ARM)
 
 on:
   push:
@@ -15,30 +15,24 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install Clang + LLVM tools
+      - name: Install GNU ARM toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang lld llvm
+          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi make
 
       - name: Build kernel
         run: |
           set -e
-
-          TARGET=armv6-none-eabi
-          CFLAGS="-target $TARGET -march=armv6 -ffreestanding -nostdlib -I."
-          LDFLAGS="-target $TARGET -nostdlib -fuse-ld=lld -Wl,-T,kernel.ld"
-
-          # Assemble (with preprocessor)
-          clang $CFLAGS -c -x assembler-with-cpp kernel.S -o kernel.o
-          clang $CFLAGS -c -x assembler-with-cpp usb.S -o usb.o
-          clang $CFLAGS -c -x assembler-with-cpp hid.S -o hid.o
-          clang $CFLAGS -c -x assembler-with-cpp keyboard.S -o keyboard.o
-
-          # Link
-          clang $LDFLAGS kernel.o usb.o hid.o keyboard.o -o kernel.elf
-
+          
+          # Assemble and link
+          arm-none-eabi-gcc -mcpu=arm1176jzf-s -nostdlib -nostartfiles -ffreestanding \
+            -T kernel.ld kernel.S usb.S hid.S keyboard.S -o kernel.elf
+          
           # Create raw binary for Pi boot
-          llvm-objcopy -O binary kernel.elf kernel.img
+          arm-none-eabi-objcopy -O binary kernel.elf kernel.img
+          
+          # Generate listing for debugging
+          arm-none-eabi-objdump -D kernel.elf > kernel.list
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -47,3 +41,4 @@ jobs:
           path: |
             kernel.elf
             kernel.img
+            kernel.list
