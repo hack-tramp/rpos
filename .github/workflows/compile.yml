@@ -25,7 +25,7 @@ jobs:
           set -e
           
           # Assemble and link
-          arm-none-eabi-gcc -mcpu=arm1176jzf-s -nostdlib -nostartfiles -ffreestanding \
+          arm-none-eabi-gcc -mcpu=arm1176jzf-s -march=armv6zk -mfpu=vfp -ffreestanding -nostdlib \
             -T kernel.ld kernel.S usb.S hid.S keyboard.S -o kernel.elf
           
           # Create raw binary for Pi boot
