@@ -1,5 +1,6 @@
 // keyboard.S - USB Keyboard driver
 // Target: Raspberry Pi 1, works with hid.S
+// FIXED for GNU Assembler syntax
 
 #include "usb_constants.h"
 
@@ -150,10 +151,10 @@ key_loop:
     mov r2, #1
     mov r7, #0                          // sys_write
     svc 0
-    add sp, #4
+    add sp, sp, #4
     
 next_key:
-    add r12, #1
+    add r12, r12, #1
     b key_loop
 
 key_loop_done:
@@ -174,7 +175,7 @@ kbd_translate:
     bhi translate_none
     
     // Check shift modifier
-    tst r1, #(1 << MOD_LSHIFT) | (1 << MOD_RSHIFT)
+    tst r1, #((1 << MOD_LSHIFT) | (1 << MOD_RSHIFT))
     bne shifted
     
     // Unshifted
