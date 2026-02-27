@@ -345,8 +345,10 @@ init_lists:
     
 init_done:
     ldr r0, =__heap_start
-    ldr r1, buddy_size
-    ldr r2, buddy_bitmap_size
+    ldr r1, =buddy_size
+    ldr r1, [r1]
+    ldr r2, =buddy_bitmap_size
+    ldr r2, [r2]
     sub r1, r1, r2
     bl buddy_free
     
