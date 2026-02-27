@@ -247,10 +247,12 @@ clear_bss:
     
     // ========== INITIALIZE FRAMEBUFFER ==========
     bl fb_init
-    str r0, __framebuffer_info
+    ldr r14, =__framebuffer_info
+    str r0, [r14]
     
     // Print welcome message
-    ldr r0, __framebuffer_info
+    ldr r14, =__framebuffer_info
+    ldr r0, [r14]
     ldr r1, [r0]
     ldr r2, [r0, #4]
     ldr r3, =welcome_msg
@@ -262,7 +264,8 @@ clear_bss:
     bl fs_init
     
     // ========== INITIALIZE USB ==========
-    ldr r0, __framebuffer_info
+    ldr r14, =__framebuffer_info
+    ldr r0, [r14]
     ldr r1, [r0]
     ldr r2, [r0, #4]
     ldr r3, =usb_start_msg
@@ -342,8 +345,10 @@ init_lists:
     
 init_done:
     ldr r0, =__heap_start
-    ldr r1, buddy_size
-    ldr r2, buddy_bitmap_size
+    ldr r1, =buddy_size
+    ldr r1, [r1]
+    ldr r2, =buddy_bitmap_size
+    ldr r2, [r2]
     sub r1, r1, r2
     bl buddy_free
     
@@ -353,7 +358,8 @@ init_done:
 buddy_get_order:
     push {lr}
     // Using pre-calculated constants - no expressions
-    add r0, r0, #ONE_SHIFT_12_MINUS_1
+    ldr r1, =ONE_SHIFT_12_MINUS_1
+    add r0, r0, r1
     lsr r0, r0, #MIN_BLOCK_SHIFT
     clz r1, r0
     rsb r1, r1, #31
@@ -428,7 +434,9 @@ split_done:
     lsr r11, r9, #3
     and r12, r9, #7
     ldrb r14, [r10, r11]
-    orr r14, r14, #(1 << r12)
+    mov r1, #1
+    lsl r1, r1, r12
+    orr r14, r14, r1
     strb r14, [r10, r11]
     
     mov r0, r7
@@ -457,7 +465,9 @@ buddy_free:
     lsr r8, r6, #3
     and r9, r6, #7
     ldrb r10, [r7, r8]
-    bic r10, r10, #(1 << r9)
+    mov r1, #1
+    lsl r1, r1, r9
+    bic r10, r10, r1
     strb r10, [r7, r8]
     
     ldr r11, =buddy_free_lists
@@ -465,11 +475,15 @@ buddy_free:
 
 merge_loop:
     mov r14, r6
-    eor r14, r14, #(1 << r12)
+    mov r1, #1
+    lsl r1, r1, r12
+    eor r14, r14, r1
     lsr r8, r14, #3
     and r9, r14, #7
     ldrb r10, [r7, r8]
-    tst r10, #(1 << r9)
+    mov r1, #1
+    lsl r1, r1, r9
+    tst r10, r1
     beq merge_done
 
 merge_done:
@@ -531,16 +545,20 @@ pipe_found:
     
     str r5, [r4]
     ldr r7, =pipe_table
-    mov r8, #PIPE_SIZE
+    ldr r8, =PIPE_SIZE
     mul r9, r6, r8
     add r10, r7, r9
     
     mov r11, #0
-    str r11, [r10, #PIPE_READ_POS]
-    str r11, [r10, #PIPE_WRITE_POS]
+    ldr r14, =PIPE_READ_POS
+    str r11, [r10, r14]
+    ldr r14, =PIPE_WRITE_POS
+    str r11, [r10, r14]
     mov r11, #1
-    str r11, [r10, #PIPE_READERS]
-    str r11, [r10, #PIPE_WRITERS]
+    ldr r14, =PIPE_READERS
+    str r11, [r10, r14]
+    ldr r14, =PIPE_WRITERS
+    str r11, [r10, r14]
     
     mov r0, r6, lsl #16
     orr r0, r0, #0x8000
@@ -560,17 +578,20 @@ pipe_write:
     lsr r4, r0, #16
     and r4, r4, #0x1F
     ldr r5, =pipe_table
-    mov r6, #PIPE_SIZE
+    ldr r6, =PIPE_SIZE
     mul r7, r4, r6
     add r8, r5, r7
     
     // Load large constants from literal pool
-    ldr r9, [r8, #PIPE_WRITERS]
+    ldr r14, =PIPE_WRITERS
+    ldr r9, [r8, r14]
     cmp r9, #0
     beq pipe_write_error
     
-    ldr r10, [r8, #PIPE_WRITE_POS]
-    ldr r11, [r8, #PIPE_READ_POS]
+    ldr r14, =PIPE_WRITE_POS
+    ldr r10, [r8, r14]
+    ldr r14, =PIPE_READ_POS
+    ldr r11, [r8, r14]
     
     mov r12, #0
     
@@ -580,7 +601,8 @@ pipe_write_loop:
     
     add r14, r10, #1
     // Use pre-calculated constant for mask
-    and r14, r14, #PIPE_BUFFER_MASK
+    ldr r9, =PIPE_BUFFER_MASK
+    and r14, r14, r9
     cmp r14, r11
     beq pipe_write_block
     
@@ -589,14 +611,17 @@ pipe_write_loop:
     strb r9, [r4, r10]
     
     add r10, r10, #1
-    and r10, r10, #PIPE_BUFFER_MASK
-    str r10, [r8, #PIPE_WRITE_POS]
+    ldr r9, =PIPE_BUFFER_MASK
+    and r10, r10, r9
+    ldr r14, =PIPE_WRITE_POS
+    str r10, [r8, r14]
     
     add r12, r12, #1
     b pipe_write_loop
 
 pipe_write_block:
-    ldr r0, __current_process
+    ldr r14, =__current_process
+    ldr r0, [r14]
     ldr r1, [r0]
     mov r2, #PROC_BLOCKED_PIPE
     str r2, [r1, #PCB_STATE]
@@ -604,12 +629,14 @@ pipe_write_block:
     bl scheduler_yield
     
     ldr r5, =pipe_table
-    mov r6, #PIPE_SIZE
+    ldr r6, =PIPE_SIZE
     mul r7, r4, r6
     add r8, r5, r7
     
-    ldr r10, [r8, #PIPE_WRITE_POS]
-    ldr r11, [r8, #PIPE_READ_POS]
+    ldr r14, =PIPE_WRITE_POS
+    ldr r10, [r8, r14]
+    ldr r14, =PIPE_READ_POS
+    ldr r11, [r8, r14]
     b pipe_write_loop
 
 pipe_write_done:
@@ -628,16 +655,19 @@ pipe_read:
     lsr r4, r0, #16
     and r4, r4, #0x1F
     ldr r5, =pipe_table
-    mov r6, #PIPE_SIZE
+    ldr r6, =PIPE_SIZE
     mul r7, r4, r6
     add r8, r5, r7
     
-    ldr r9, [r8, #PIPE_READERS]
+    ldr r14, =PIPE_READERS
+    ldr r9, [r8, r14]
     cmp r9, #0
     beq pipe_read_error
     
-    ldr r10, [r8, #PIPE_READ_POS]
-    ldr r11, [r8, #PIPE_WRITE_POS]
+    ldr r14, =PIPE_READ_POS
+    ldr r10, [r8, r14]
+    ldr r14, =PIPE_WRITE_POS
+    ldr r11, [r8, r14]
     
     mov r12, #0
     
@@ -652,14 +682,17 @@ pipe_read_loop:
     strb r9, [r1, r12]
     
     add r10, r10, #1
-    and r10, r10, #PIPE_BUFFER_MASK
-    str r10, [r8, #PIPE_READ_POS]
+    ldr r9, =PIPE_BUFFER_MASK
+    and r10, r10, r9
+    ldr r14, =PIPE_READ_POS
+    str r10, [r8, r14]
     
     add r12, r12, #1
     b pipe_read_loop
 
 pipe_read_block:
-    ldr r0, __current_process
+    ldr r14, =__current_process
+    ldr r0, [r14]
     ldr r1, [r0]
     mov r2, #PROC_BLOCKED_PIPE
     str r2, [r1, #PCB_STATE]
@@ -667,12 +700,14 @@ pipe_read_block:
     bl scheduler_yield
     
     ldr r5, =pipe_table
-    mov r6, #PIPE_SIZE
+    ldr r6, =PIPE_SIZE
     mul r7, r4, r6
     add r8, r5, r7
     
-    ldr r10, [r8, #PIPE_READ_POS]
-    ldr r11, [r8, #PIPE_WRITE_POS]
+    ldr r14, =PIPE_READ_POS
+    ldr r10, [r8, r14]
+    ldr r14, =PIPE_WRITE_POS
+    ldr r11, [r8, r14]
     b pipe_read_loop
 
 pipe_read_done:
@@ -1115,11 +1150,14 @@ sys_write:
     cmp r0, #1
     bne syscall_return
     
-    ldr r3, __framebuffer_info
+    ldr r14, =__framebuffer_info
+    ldr r3, [r14]
     ldr r4, [r3]
     ldr r5, [r3, #4]
-    ldr r6, __cursor_x
-    ldr r7, __cursor_y
+    ldr r14, =__cursor_x
+    ldr r6, [r14]
+    ldr r14, =__cursor_y
+    ldr r7, [r14]
     
     mov r8, r1
     mov r9, r2
@@ -1153,8 +1191,10 @@ write_newline:
     b write_loop
 
 write_done:
-    str r6, __cursor_x
-    str r7, __cursor_y
+    ldr r14, =__cursor_x
+    str r6, [r14]
+    ldr r14, =__cursor_y
+    str r7, [r14]
     mov r0, r9
     b syscall_return
 
@@ -1244,7 +1284,8 @@ fb_buffer:
     .word 0
     
     ldr r0, =PERIPHERAL_BASE
-    add r0, r0, #0xB880
+    ldr r2, =0xB880
+    add r0, r0, r2
     ldr r1, =fb_buffer
     add r1, r1, #0x40000000
 wait_write:
@@ -1280,8 +1321,10 @@ fb_fail:
 
 fb_print_string:
     push {r4-r11, lr}
-    ldr r4, __cursor_x
-    ldr r5, __cursor_y
+    ldr r14, =__cursor_x
+    ldr r4, [r14]
+    ldr r14, =__cursor_y
+    ldr r5, [r14]
 print_char:
     ldrb r6, [r3], #1
     cmp r6, #0
@@ -1306,8 +1349,10 @@ print_newline:
     movgt r5, #0
     b print_char
 print_done:
-    str r4, __cursor_x
-    str r5, __cursor_y
+    ldr r14, =__cursor_x
+    str r4, [r14]
+    ldr r14, =__cursor_y
+    str r5, [r14]
     pop {r4-r11, pc}
 
 // ========== UTILITY ==========
