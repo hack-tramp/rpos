@@ -1,6 +1,6 @@
 // usb.S - Complete USB host stack for Raspberry Pi 1
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
-// FIXED for GNU Assembler syntax - FINAL VERSION
+// CORRECTED for Clang compilation - All ARMv6 compatibility fixes applied
 
 // ========== DWC OTG REGISTERS ==========
 .equ USB_BASE,              0x20098000
@@ -176,8 +176,10 @@ clean_loop:
     add r4, r4, #CACHE_LINE_SIZE
     b clean_loop
 clean_done:
-    dsb
-    isb
+    // ARMv6-compatible barriers (DSB/ISB replacements)
+    mov r0, #0
+    mcr p15, 0, r0, c7, c10, 4  // Drain write buffer (DSB equivalent)
+    mcr p15, 0, r0, c7, c5, 4   // Flush prefetch buffer (ISB equivalent)
     pop {r4-r6, pc}
 
 .globl invalidate_dcache_range
@@ -194,8 +196,10 @@ inval_loop:
     add r4, r4, #CACHE_LINE_SIZE
     b inval_loop
 inval_done:
-    dsb
-    isb
+    // ARMv6-compatible barriers (DSB/ISB replacements)
+    mov r0, #0
+    mcr p15, 0, r0, c7, c10, 4  // Drain write buffer (DSB equivalent)
+    mcr p15, 0, r0, c7, c5, 4   // Flush prefetch buffer (ISB equivalent)
     pop {r4-r6, pc}
 
 // ========== DELAY ==========
@@ -287,7 +291,8 @@ usb_hcd_reset:
     push {r4-r11, lr}
     ldr r4, =USB_BASE
     
-    mov r5, #10000
+    // Load large constant from literal pool
+    ldr r5, =10000
 ahb_idle_wait:
     ldr r1, [r4, #OTG_GRSTCTL]
     tst r1, #0x80000000
@@ -299,7 +304,8 @@ ahb_idle_done:
     ldr r1, =0x00000001
     str r1, [r4, #OTG_GRSTCTL]
     
-    mov r5, #100000
+    // Load large constant from literal pool
+    ldr r5, =100000
 reset_wait:
     ldr r1, [r4, #OTG_GRSTCTL]
     tst r1, #1
@@ -441,7 +447,8 @@ usb_port_reset:
     ldr r0, =20000
     bl usb_delay_us
     
-    mov r5, #100000
+    // Load large constant from literal pool
+    ldr r5, =100000
 enable_wait:
     ldr r1, [r4, #OTG_HPRT]
     tst r1, #2
@@ -630,6 +637,7 @@ usb_start_transfer:
     add r1, r1, r5, lsl #5
     ldr r2, [r6, r1]
     
+    // Load mask constants from literal pool
     ldr r3, =0x7FF
     bic r2, r2, r3
     ldr r3, =0x7800
@@ -641,7 +649,9 @@ usb_start_transfer:
     ldr r3, =0x1FC00000
     bic r2, r2, r3
     
-    and r3, r0, #0x7FF
+    // Load mask for and operations
+    ldr r3, =0x7FF
+    and r3, r0, r3
     orr r2, r2, r3
     and r3, r14, #0xF
     lsl r3, r3, #11
@@ -652,7 +662,8 @@ usb_start_transfer:
     and r3, r3, #3
     lsl r3, r3, #18
     orr r2, r2, r3
-    and r3, r12, #0x7F
+    ldr r3, =0x7F
+    and r3, r12, r3
     lsl r3, r3, #22
     orr r2, r2, r3
     
@@ -683,7 +694,9 @@ no_split:
     mov r14, r0
     
     mov r0, r10
-    and r1, r14, #0x3FF
+    // Load mask for packet count
+    ldr r1, =0x3FF
+    and r1, r14, r1
     lsl r1, r1, #19
     orr r0, r0, r1
     and r1, r11, #3
@@ -708,7 +721,9 @@ no_split:
     bl clean_dcache_range
 
 enable_channel:
-    dsb
+    // ARMv6-compatible barrier (DSB equivalent)
+    mov r0, #0
+    mcr p15, 0, r0, c7, c10, 4
     
     ldr r1, =OTG_HCCHAR_BASE
     add r1, r1, r5, lsl #5
@@ -844,7 +859,9 @@ check_chh:
     ldr r0, =OTG_HCTSIZ_BASE
     add r0, r0, r4, lsl #5
     ldr r1, [r5, r0]
-    and r1, r1, #0x7FFFF
+    // Load mask for remaining bytes
+    ldr r2, =0x7FFFF
+    and r1, r1, r2
     
     ldr r2, [r9, #URB_LENGTH]
     sub r2, r2, r1
@@ -925,7 +942,8 @@ usb_abort_channel:
     bic r1, r1, #0x80000000
     str r1, [r4, r0]
     
-    mov r6, #10000
+    // Load large constant from literal pool
+    ldr r6, =10000
 halt_wait:
     subs r6, r6, #1
     beq halt_done
@@ -1024,3 +1042,6 @@ usb_init_msg:          .asciz "USB: Initializing...\n"
 usb_connect_msg:       .asciz "USB: Device connected\n"
 usb_enum_success_msg:  .asciz "USB: Device enumerated\n"
 usb_enum_fail_msg:     .asciz "USB: Enumeration failed\n"
+
+// Literal pool for large constants
+.ltorg
