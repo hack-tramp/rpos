@@ -1,6 +1,6 @@
-// kernel.S - Complete kernel with buddy allocator, pipes, filesystem, and USB
+// kernel.S - Complete kernel with buddy allocator, pipes, filesystem, USB and process management
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
-// FIXED for GNU Assembler syntax
+// FIXED for GNU Assembler syntax with working process management
 
 .section ".vectors"
 .globl _start
@@ -82,11 +82,45 @@ _fiq_handler:        .word fiq_handler
 .equ MAX_PROCESSES,       64
 .equ STACK_SIZE,          8192        // 8KB per process
 
+// PCB offsets - simplified for GAS compatibility
+.equ PCB_PID,             0
+.equ PCB_STATE,           4
+.equ PCB_SP,              8
+.equ PCB_LR,              12
+.equ PCB_R4,              16
+.equ PCB_R5,              20
+.equ PCB_R6,              24
+.equ PCB_R7,              28
+.equ PCB_R8,              32
+.equ PCB_R9,              36
+.equ PCB_R10,             40
+.equ PCB_R11,             44
+.equ PCB_PC,              48
+.equ PCB_CPSR,            52
+.equ PCB_BLOCK_DATA,      56
+.equ PCB_FD0,             64
+.equ PCB_FD1,             68
+.equ PCB_FD2,             72
+.equ PCB_FD3,             76
+.equ PCB_FD4,             80
+.equ PCB_FD5,             84
+.equ PCB_FD6,             88
+.equ PCB_FD7,             92
+.equ PCB_FD8,             96
+.equ PCB_FD9,             100
+.equ PCB_FD10,            104
+.equ PCB_FD11,            108
+.equ PCB_FD12,            112
+.equ PCB_FD13,            116
+.equ PCB_FD14,            120
+.equ PCB_FD15,            124
+.equ PCB_SIZE,            128
+
 reset_handler:
     // ========== CRITICAL: CPU MODE SETUP ==========
     // Disable interrupts during initialization
     mrs r0, cpsr
-    orr r0, r0, #I_BIT | F_BIT
+    orr r0, r0, #(I_BIT | F_BIT)
     msr cpsr, r0
     
     // Set up IRQ mode stack
@@ -158,13 +192,13 @@ clear_bss:
     add r0, r0, #TIMER_BASE
     
     ldr r1, [r0, #TIMER_CLO]
-    ldr r2, =100000             // 100ms at 1MHz
+    ldr r2, =100000
     add r1, r1, r2
     str r1, [r0, #TIMER_C1]
     
     ldr r0, =PERIPHERAL_BASE
     add r0, r0, #IRQ_ENABLE1
-    mov r1, #2                  // Bit 1 = timer 1
+    mov r1, #2
     str r1, [r0]
     
     // ========== INITIALIZE FRAMEBUFFER ==========
@@ -194,7 +228,7 @@ clear_bss:
     
     // ========== ENABLE INTERRUPTS ==========
     mrs r0, cpsr
-    bic r0, r0, #I_BIT          // Clear I bit (enable IRQ)
+    bic r0, r0, #I_BIT
     msr cpsr, r0
     
     // ========== CREATE INIT PROCESS ==========
@@ -233,9 +267,9 @@ buddy_init:
     str r1, [r2]
     
     lsr r3, r1, #MIN_BLOCK_SHIFT
-    add r3, #7
-    lsr r3, #3
-    add r3, #7
+    add r3, r3, #7
+    lsr r3, r3, #3
+    add r3, r3, #7
     bic r3, r3, #7
     
     ldr r4, =buddy_bitmap_size
@@ -256,7 +290,7 @@ init_lists:
     bge init_done
     mov r0, #0
     str r0, [r4, r5, lsl #2]
-    add r5, #1
+    add r5, r5, #1
     b init_lists
     
 init_done:
@@ -300,7 +334,7 @@ search_loop:
     ldr r7, [r5, r6, lsl #2]
     cmp r7, #0
     bne found_block
-    add r6, #1
+    add r6, r6, #1
     b search_loop
 
 found_block:
@@ -421,7 +455,7 @@ find_pipe:
     bge pipe_create_fail
     tst r5, #(1 << r6)
     beq pipe_found
-    add r6, #1
+    add r6, r6, #1
     b find_pipe
 
 pipe_found:
@@ -483,11 +517,11 @@ pipe_write_loop:
     add r4, r8, #PIPE_BUFFER
     strb r9, [r4, r10]
     
-    add r10, #1
+    add r10, r10, #1
     and r10, r10, #(PIPE_BUFFER_SIZE - 1)
     str r10, [r8, #PIPE_WRITE_POS]
     
-    add r12, #1
+    add r12, r12, #1
     b pipe_write_loop
 
 pipe_write_block:
@@ -546,11 +580,11 @@ pipe_read_loop:
     ldrb r9, [r4, r10]
     strb r9, [r1, r12]
     
-    add r10, #1
+    add r10, r10, #1
     and r10, r10, #(PIPE_BUFFER_SIZE - 1)
     str r10, [r8, #PIPE_READ_POS]
     
-    add r12, #1
+    add r12, r12, #1
     b pipe_read_loop
 
 pipe_read_block:
@@ -589,20 +623,31 @@ pipe_wake_readers:
 wake_readers_loop:
     cmp r6, #MAX_PROCESSES
     bge wake_readers_done
-    ldr r7, [r5, r6, lsl #6]
-    cmp r7, #0
+    
+    // Calculate PCB address
+    mov r7, r6
+    lsl r7, r7, #7  // Multiply by 128 (PCB_SIZE)
+    add r8, r5, r7
+    
+    ldr r9, [r8, #PCB_PID]
+    cmp r9, #0
     beq wake_readers_next
-    ldr r8, [r5, r6, lsl #6, #4]
-    cmp r8, #PROC_BLOCKED_PIPE
+    
+    ldr r10, [r8, #PCB_STATE]
+    cmp r10, #PROC_BLOCKED_PIPE
     bne wake_readers_next
-    ldr r9, [r5, r6, lsl #6, #56]
-    cmp r9, r4
+    
+    ldr r11, [r8, #PCB_BLOCK_DATA]
+    cmp r11, r4
     bne wake_readers_next
-    mov r8, #PROC_READY
-    str r8, [r5, r6, lsl #6, #4]
+    
+    mov r10, #PROC_READY
+    str r10, [r8, #PCB_STATE]
+
 wake_readers_next:
-    add r6, #1
+    add r6, r6, #1
     b wake_readers_loop
+
 wake_readers_done:
     pop {r4-r11, pc}
 
@@ -615,20 +660,31 @@ pipe_wake_writers:
 wake_writers_loop:
     cmp r6, #MAX_PROCESSES
     bge wake_writers_done
-    ldr r7, [r5, r6, lsl #6]
-    cmp r7, #0
+    
+    // Calculate PCB address
+    mov r7, r6
+    lsl r7, r7, #7
+    add r8, r5, r7
+    
+    ldr r9, [r8, #PCB_PID]
+    cmp r9, #0
     beq wake_writers_next
-    ldr r8, [r5, r6, lsl #6, #4]
-    cmp r8, #PROC_BLOCKED_PIPE
+    
+    ldr r10, [r8, #PCB_STATE]
+    cmp r10, #PROC_BLOCKED_PIPE
     bne wake_writers_next
-    ldr r9, [r5, r6, lsl #6, #56]
-    cmp r9, r4
+    
+    ldr r11, [r8, #PCB_BLOCK_DATA]
+    cmp r11, r4
     bne wake_writers_next
-    mov r8, #PROC_READY
-    str r8, [r5, r6, lsl #6, #4]
+    
+    mov r10, #PROC_READY
+    str r10, [r8, #PCB_STATE]
+
 wake_writers_next:
-    add r6, #1
+    add r6, r6, #1
     b wake_writers_loop
+
 wake_writers_done:
     pop {r4-r11, pc}
 
@@ -702,24 +758,6 @@ fs_init:
     pop {pc}
 
 // ========== PROCESS MANAGEMENT ==========
-.equ PCB_PID,           0
-.equ PCB_STATE,         4
-.equ PCB_SP,            8
-.equ PCB_LR,            12
-.equ PCB_R4,            16
-.equ PCB_R5,            20
-.equ PCB_R6,            24
-.equ PCB_R7,            28
-.equ PCB_R8,            32
-.equ PCB_R9,            36
-.equ PCB_R10,           40
-.equ PCB_R11,           44
-.equ PCB_PC,            48
-.equ PCB_CPSR,          52
-.equ PCB_BLOCK_DATA,    56
-.equ PCB_FD_START,      64
-.equ PCB_SIZE,          128
-
 .section ".data"
 __process_table:        .space MAX_PROCESSES * PCB_SIZE, 0
 __current_process:      .word -1
@@ -746,10 +784,16 @@ process_create:
 find_slot:
     cmp r5, #MAX_PROCESSES
     bge create_fail
-    ldr r6, [r4, r5, lsl #7]
-    cmp r6, #0
+    
+    // Calculate PCB address
+    mov r6, r5
+    lsl r6, r6, #7
+    add r7, r4, r6
+    
+    ldr r8, [r7, #PCB_PID]
+    cmp r8, #0
     beq slot_found
-    add r5, #1
+    add r5, r5, #1
     b find_slot
 
 slot_found:
@@ -757,24 +801,78 @@ slot_found:
     ldr r7, [r6]
     add r8, r7, #1
     str r8, [r6]
-    str r7, [r4, r5, lsl #7]
     
-    mov r6, #PROC_READY
-    str r6, [r4, r5, lsl #7, #4]
-    str r0, [r4, r5, lsl #7, #48]
-    mov r6, #0x10
-    str r6, [r4, r5, lsl #7, #52]
+    // Calculate PCB address again
+    mov r9, r5
+    lsl r9, r9, #7
+    add r10, r4, r9
     
+    str r7, [r10, #PCB_PID]
+    
+    mov r8, #PROC_READY
+    str r8, [r10, #PCB_STATE]
+    str r0, [r10, #PCB_PC]
+    
+    mov r8, #0x10  // User mode
+    str r8, [r10, #PCB_CPSR]
+    
+    // Allocate user stack
     mov r0, #STACK_SIZE
     bl buddy_alloc
     cmp r0, #0
     beq create_fail
     
-    str r0, [r4, r5, lsl #7, #56]
+    str r0, [r10, #PCB_BLOCK_DATA]  // Store stack base
     add r0, r0, #STACK_SIZE
-    str r0, [r4, r5, lsl #7, #8]
+    str r0, [r10, #PCB_SP]
     
-    mov r0, r7
+    // Initialize FD table to zeros
+    mov r8, #0
+    str r8, [r10, #PCB_FD0]
+    str r8, [r10, #PCB_FD1]
+    str r8, [r10, #PCB_FD2]
+    str r8, [r10, #PCB_FD3]
+    str r8, [r10, #PCB_FD4]
+    str r8, [r10, #PCB_FD5]
+    str r8, [r10, #PCB_FD6]
+    str r8, [r10, #PCB_FD7]
+    str r8, [r10, #PCB_FD8]
+    str r8, [r10, #PCB_FD9]
+    str r8, [r10, #PCB_FD10]
+    str r8, [r10, #PCB_FD11]
+    str r8, [r10, #PCB_FD12]
+    str r8, [r10, #PCB_FD13]
+    str r8, [r10, #PCB_FD14]
+    str r8, [r10, #PCB_FD15]
+    
+    // Open stdin (fd 0)
+    sub sp, sp, #4
+    mov r0, #'0'
+    strb r0, [sp]
+    mov r0, sp
+    mov r1, #0
+    bl fs_open
+    str r0, [r10, #PCB_FD0]
+    
+    // Open stdout (fd 1)
+    mov r0, #'1'
+    strb r0, [sp]
+    mov r0, sp
+    mov r1, #0
+    bl fs_open
+    str r0, [r10, #PCB_FD1]
+    
+    // Open stderr (fd 2)
+    mov r0, #'2'
+    strb r0, [sp]
+    mov r0, sp
+    mov r1, #0
+    bl fs_open
+    str r0, [r10, #PCB_FD2]
+    
+    add sp, sp, #4
+    
+    mov r0, r7  // Return PID
     pop {r4-r11, pc}
 
 create_fail:
@@ -789,29 +887,35 @@ scheduler_start:
 find_ready:
     cmp r5, #MAX_PROCESSES
     bge idle_loop
-    ldr r6, [r4, r5, lsl #7, #4]
-    cmp r6, #PROC_READY
+    
+    mov r6, r5
+    lsl r6, r6, #7
+    add r7, r4, r6
+    
+    ldr r8, [r7, #PCB_STATE]
+    cmp r8, #PROC_READY
     beq run_process
-    add r5, #1
+    add r5, r5, #1
     b find_ready
 
 run_process:
-    mov r6, #PROC_RUNNING
-    str r6, [r4, r5, lsl #7, #4]
-    ldr r7, =__current_process
-    str r5, [r7]
+    mov r8, #PROC_RUNNING
+    str r8, [r7, #PCB_STATE]
     
-    add r8, r4, r5, lsl #7
-    ldr sp, [r8, #8]
-    ldr lr, [r8, #12]
-    ldr r4, [r8, #16]
-    ldr r5, [r8, #20]
-    ldr r6, [r8, #24]
-    ldr r7, [r8, #28]
-    ldr r8, [r8, #32]
-    ldr r9, [r8, #36]
-    ldr r10, [r8, #40]
-    ldr r11, [r8, #44]
+    ldr r9, =__current_process
+    str r5, [r9]
+    
+    // Restore context
+    ldr sp, [r7, #PCB_SP]
+    ldr lr, [r7, #PCB_LR]
+    ldr r4, [r7, #PCB_R4]
+    ldr r5, [r7, #PCB_R5]
+    ldr r6, [r7, #PCB_R6]
+    ldr r8, [r7, #PCB_R8]
+    ldr r9, [r7, #PCB_R9]
+    ldr r10, [r7, #PCB_R10]
+    ldr r11, [r7, #PCB_R11]
+    ldr r7, [r7, #PCB_R7]  // Load r7 last
     
     movs pc, lr
 
@@ -823,59 +927,71 @@ idle_loop:
 .globl scheduler_yield
 scheduler_yield:
     push {lr}
+    
     ldr r0, =__current_process
     ldr r1, [r0]
     cmp r1, #-1
     beq yield_no_current
     
     ldr r2, =__process_table
-    add r3, r2, r1, lsl #7
+    mov r3, r1
+    lsl r3, r3, #7
+    add r4, r2, r3
     
-    str sp, [r3, #8]
-    str lr, [r3, #12]
-    str r4, [r3, #16]
-    str r5, [r3, #20]
-    str r6, [r3, #24]
-    str r7, [r3, #28]
-    str r8, [r3, #32]
-    str r9, [r3, #36]
-    str r10, [r3, #40]
-    str r11, [r3, #44]
+    // Save context
+    str sp, [r4, #PCB_SP]
+    str lr, [r4, #PCB_LR]
+    str r4, [r4, #PCB_R4]
+    str r5, [r4, #PCB_R5]
+    str r6, [r4, #PCB_R6]
+    str r7, [r4, #PCB_R7]
+    str r8, [r4, #PCB_R8]
+    str r9, [r4, #PCB_R9]
+    str r10, [r4, #PCB_R10]
+    str r11, [r4, #PCB_R11]
     
-    ldr r4, [r3, #4]
-    cmp r4, #PROC_RUNNING
-    moveq r4, #PROC_READY
-    streq r4, [r3, #4]
+    // Update state if still running
+    ldr r5, [r4, #PCB_STATE]
+    cmp r5, #PROC_RUNNING
+    moveq r5, #PROC_READY
+    streq r5, [r4, #PCB_STATE]
     
 yield_no_current:
+    // Find next ready process
     ldr r4, =__process_table
     mov r5, #0
 yield_find:
     cmp r5, #MAX_PROCESSES
     bge idle_yield
-    ldr r6, [r4, r5, lsl #7, #4]
-    cmp r6, #PROC_READY
+    
+    mov r6, r5
+    lsl r6, r6, #7
+    add r7, r4, r6
+    
+    ldr r8, [r7, #PCB_STATE]
+    cmp r8, #PROC_READY
     beq yield_found
-    add r5, #1
+    add r5, r5, #1
     b yield_find
 
 yield_found:
     ldr r0, =__current_process
     str r5, [r0]
-    mov r6, #PROC_RUNNING
-    str r6, [r4, r5, lsl #7, #4]
     
-    add r8, r4, r5, lsl #7
-    ldr sp, [r8, #8]
-    ldr lr, [r8, #12]
-    ldr r4, [r8, #16]
-    ldr r5, [r8, #20]
-    ldr r6, [r8, #24]
-    ldr r7, [r8, #28]
-    ldr r8, [r8, #32]
-    ldr r9, [r8, #36]
-    ldr r10, [r8, #40]
-    ldr r11, [r8, #44]
+    mov r8, #PROC_RUNNING
+    str r8, [r7, #PCB_STATE]
+    
+    // Restore context
+    ldr sp, [r7, #PCB_SP]
+    ldr lr, [r7, #PCB_LR]
+    ldr r4, [r7, #PCB_R4]
+    ldr r5, [r7, #PCB_R5]
+    ldr r6, [r7, #PCB_R6]
+    ldr r8, [r7, #PCB_R8]
+    ldr r9, [r7, #PCB_R9]
+    ldr r10, [r7, #PCB_R10]
+    ldr r11, [r7, #PCB_R11]
+    ldr r7, [r7, #PCB_R7]  // Load r7 last
     
     pop {pc}
     movs pc, lr
@@ -908,9 +1024,8 @@ irq_handler:
     b irq_done
 
 check_usb_irq:
-    tst r1, #0x00000200             // Bit 9 (IRQ 9) for USB
+    tst r1, #0x00000200
     beq irq_unknown
-    
     bl usb_handle_irq
     b irq_done
 
@@ -969,19 +1084,19 @@ write_loop:
     add r12, r4, r12
     ldr r14, =0xFFFFFFFF
     str r14, [r12]
-    add r6, #8
+    add r6, r6, #8
     cmp r6, #1016
     movgt r6, #0
-    addgt r7, #16
-    add r10, #1
+    addgt r7, r7, #16
+    add r10, r10, #1
     b write_loop
 
 write_newline:
     mov r6, #0
-    add r7, #16
+    add r7, r7, #16
     cmp r7, #752
     movgt r7, #0
-    add r10, #1
+    add r10, r10, #1
     b write_loop
 
 write_done:
@@ -1009,15 +1124,23 @@ sys_pipe:
 sys_exit:
     ldr r0, =__current_process
     ldr r1, [r0]
+    cmp r1, #-1
+    beq exit_yield
+    
     ldr r2, =__process_table
-    add r3, r2, r1, lsl #7
-    mov r4, #PROC_ZOMBIE
-    str r4, [r3, #4]
-    ldr r0, [r3, #56]
+    mov r3, r1
+    lsl r3, r3, #7
+    add r4, r2, r3
+    
+    mov r5, #PROC_ZOMBIE
+    str r5, [r4, #PCB_STATE]
+    
+    ldr r0, [r4, #PCB_BLOCK_DATA]  // Stack base
     cmp r0, #0
     beq exit_yield
     mov r1, #STACK_SIZE
     bl buddy_free
+
 exit_yield:
     bl scheduler_yield
 
@@ -1119,14 +1242,14 @@ print_char:
     add r8, r1, r8
     ldr r9, =0xFFFFFFFF
     str r9, [r8]
-    add r4, #8
+    add r4, r4, #8
     cmp r4, #1016
     movgt r4, #0
-    addgt r5, #16
+    addgt r5, r5, #16
     b print_char
 print_newline:
     mov r4, #0
-    add r5, #16
+    add r5, r5, #16
     cmp r5, #752
     movgt r5, #0
     b print_char
