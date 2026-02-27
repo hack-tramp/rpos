@@ -1,4 +1,4 @@
-name: Build Raspberry Pi Kernel (Clang) - Kernel Only
+name: Build Raspberry Pi Kernel (Clang)
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang lld llvm
 
-      - name: Build kernel (kernel.S only)
+      - name: Build kernel
         run: |
           set -e
 
@@ -28,15 +28,18 @@ jobs:
           CPU=arm1176jzf-s
           CFLAGS="--target=$TARGET -mcpu=$CPU -ffreestanding -nostdlib -I."
 
-          echo "Assembling kernel.S..."
+          echo "Assembling sources..."
 
           clang $CFLAGS -c -x assembler-with-cpp kernel.S -o kernel.o
+          clang $CFLAGS -c -x assembler-with-cpp usb.S -o usb.o
+          clang $CFLAGS -c -x assembler-with-cpp hid.S -o hid.o
+          clang $CFLAGS -c -x assembler-with-cpp keyboard.S -o keyboard.o
 
           echo "Linking..."
 
           clang --target=$TARGET -mcpu=$CPU -nostdlib \
                 -Wl,-T,kernel.ld \
-                kernel.o \
+                kernel.o usb.o hid.o keyboard.o \
                 -o kernel.elf
 
           echo "Generating binary image..."
@@ -52,7 +55,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rpos-build-kernel-only
+          name: rpos-build
           path: |
             kernel.elf
             kernel.img
