@@ -1,7 +1,6 @@
 // usb.S - Complete USB host stack for Raspberry Pi 1
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
-// FULL VERSION with clock init, PHY setup, and D+ pull-up
-// FIXED for GNU Assembler syntax
+// FIXED for GNU Assembler syntax - FINAL VERSION
 
 // ========== DWC OTG REGISTERS ==========
 .equ USB_BASE,              0x20098000
@@ -32,14 +31,13 @@
 .equ OTG_HCTSIZ0,           0x510
 .equ OTG_HCDMA0,            0x514
 
-// Macro for indexed registers - GAS compatible
-.equ OTG_HCCHAR,        0x500
-.equ OTG_HCSPLT,        0x504
-.equ OTG_HCINT,         0x508
-.equ OTG_HCINTMSK,      0x50C
-.equ OTG_HCTSIZ,        0x510
-.equ OTG_HCDMA,         0x514
-// Use: ldr r0, =OTG_HCCHAR + (n * 0x20)
+.equ OTG_HCCHAR_BASE,       0x500
+.equ OTG_HCSPLT_BASE,       0x504
+.equ OTG_HCINT_BASE,        0x508
+.equ OTG_HCINTMSK_BASE,     0x50C
+.equ OTG_HCTSIZ_BASE,       0x510
+.equ OTG_HCDMA_BASE,        0x514
+.equ OTG_CHAN_OFFSET,       0x20
 
 // Clock Manager registers (BCM2835)
 .equ CM_BASE,               0x20101000
@@ -75,7 +73,6 @@
 .equ PID_SETUP,             3
 
 // ========== DATA STRUCTURES ==========
-// USB device structure (128 bytes)
 .equ USB_DEV_ADDR,           0
 .equ USB_DEV_SPEED,          4
 .equ USB_DEV_STATE,          8
@@ -92,7 +89,6 @@
 .equ USB_DEV_TOGGLE_RESET,   48
 .equ USB_DEV_SIZE,           128
 
-// USB endpoint structure (32 bytes)
 .equ USB_EP_NUM,             0
 .equ USB_EP_TYPE,            4
 .equ USB_EP_DIR,             8
@@ -103,7 +99,6 @@
 .equ USB_EP_HALTED,          25
 .equ USB_EP_SIZE,            32
 
-// USB transfer request structure (52 bytes)
 .equ URB_DEVICE,             0
 .equ URB_ENDPOINT,           4
 .equ URB_TYPE,               8
@@ -122,9 +117,8 @@
 .equ URB_PORT_NUM,           48
 .equ URB_SIZE,               52
 
-// Channel state structure (32 bytes)
 .equ CHAN_NUM,               0
-.equ CHAN_STATE,             4    // 0=free,1=active,2=halting
+.equ CHAN_STATE,             4
 .equ CHAN_URB,               8
 .equ CHAN_DEVICE,            12
 .equ CHAN_ENDPOINT,          16
@@ -219,14 +213,12 @@ delay_loop:
 usb_init:
     push {r4-r11, lr}
     
-    // Print status
     ldr r0, __framebuffer_info
     ldr r1, [r0]
     ldr r2, [r0, #4]
     ldr r3, =usb_init_msg
     bl fb_print_string
     
-    // Initialize data structures
     ldr r0, =usb_devices
     mov r1, #0
     ldr r2, =(USB_MAX_DEVICES * USB_DEV_SIZE)
@@ -253,7 +245,6 @@ usb_init:
     ldr r0, =usb_complete_queue
     str r1, [r0]
     
-    // Initialize DMA buffers
     ldr r0, =usb_setup_buffer
     mov r1, #64
     bl clean_dcache_range
@@ -262,36 +253,29 @@ usb_init:
     mov r1, #2048
     bl clean_dcache_range
     
-    // ===== CRITICAL: ENABLE USB CLOCK =====
+    // ===== ENABLE USB CLOCK =====
     ldr r0, =CM_BASE
-    ldr r1, =(CM_PASSWD | 0x2000A)      // PASSWD + ENABLE + SRC=OSC
+    ldr r1, =(CM_PASSWD | 0x2000A)
     str r1, [r0, #CM_USBCTRL]
     
     ldr r0, =10000
     bl usb_delay_us
     
-    // ===== RESET CONTROLLER =====
     bl usb_hcd_reset
-    
-    // ===== FORCE HOST MODE & CONFIGURE PHY =====
     bl usb_hcd_init
     
-    // ===== ENABLE D+ PULL-UP (B SESSION VALID) =====
+    // ===== ENABLE D+ PULL-UP =====
     ldr r0, =USB_BASE
     ldr r1, [r0, #OTG_GOTGCTL]
-    orr r1, r1, #0x00000008                // Bit 3: B Session Valid
+    orr r1, r1, #0x00000008
     str r1, [r0, #OTG_GOTGCTL]
     
     ldr r0, =50000
     bl usb_delay_us
     
-    // ===== POWER ON ROOT PORT =====
     bl usb_port_power_on
-    
-    // ===== ENABLE INTERRUPTS =====
     bl usb_enable_interrupts
     
-    // Wait for devices
     ldr r0, =100000
     bl usb_delay_us
     
@@ -301,10 +285,8 @@ usb_init:
 .globl usb_hcd_reset
 usb_hcd_reset:
     push {r4-r11, lr}
-    
     ldr r4, =USB_BASE
     
-    // Wait for AHB idle
     mov r5, #10000
 ahb_idle_wait:
     ldr r1, [r4, #OTG_GRSTCTL]
@@ -314,7 +296,6 @@ ahb_idle_wait:
     bne ahb_idle_wait
 
 ahb_idle_done:
-    // Core soft reset
     ldr r1, =0x00000001
     str r1, [r4, #OTG_GRSTCTL]
     
@@ -335,10 +316,8 @@ reset_done:
 .globl usb_hcd_init
 usb_hcd_init:
     push {r4-r11, lr}
-    
     ldr r4, =USB_BASE
     
-    // Force host mode
     ldr r1, [r4, #OTG_GUSBCFG]
     orr r1, r1, #0x40000000
     str r1, [r4, #OTG_GUSBCFG]
@@ -346,31 +325,24 @@ usb_hcd_init:
     ldr r0, =10000
     bl usb_delay_us
     
-    // Configure AHB
     ldr r1, =0x00000021
     str r1, [r4, #OTG_GAHBCFG]
     
-    // Configure USB (TTRD for 40MHz PHY)
     ldr r1, =0x00402840
     str r1, [r4, #OTG_GUSBCFG]
     
     ldr r0, =50000
     bl usb_delay_us
     
-    // Set FIFO sizes
     ldr r1, =512
     str r1, [r4, #OTG_GRXFSIZ]
-    
     ldr r1, =0x02000200
     str r1, [r4, #OTG_GNPTXFSIZ]
-    
     ldr r1, =0x01000400
     str r1, [r4, #OTG_HPTXFSIZ]
     
-    // Configure host
     mov r1, #0
     str r1, [r4, #OTG_HCFG]
-    
     ldr r1, =60000
     str r1, [r4, #OTG_HFIR]
     
@@ -380,28 +352,25 @@ usb_hcd_init:
 .globl usb_port_power_on
 usb_port_power_on:
     push {r4-r11, lr}
-    
     ldr r4, =USB_BASE
     ldr r1, [r4, #OTG_HPRT]
-    orr r1, r1, #0x00001000                // Port power (bit 12)
+    orr r1, r1, #0x00001000
     str r1, [r4, #OTG_HPRT]
-    
     pop {r4-r11, pc}
 
 // ========== ENABLE INTERRUPTS ==========
 .globl usb_enable_interrupts
 usb_enable_interrupts:
     push {r4-r11, lr}
-    
     ldr r4, =USB_BASE
     
-    // Enable channel interrupts
     mov r5, #0
 enable_chan_irq:
     cmp r5, #USB_MAX_CHANNELS
     bge enable_done
     
-    ldr r6, =(OTG_HCINTMSK + (r5 * 0x20))
+    ldr r6, =OTG_HCINTMSK_BASE
+    add r6, r6, r5, lsl #5
     ldr r7, =0x7F
     str r7, [r4, r6]
     
@@ -409,7 +378,6 @@ enable_chan_irq:
     b enable_chan_irq
 
 enable_done:
-    // Enable host port and channel interrupts
     ldr r5, =0x0C000000
     str r5, [r4, #OTG_HAINTMSK]
     str r5, [r4, #OTG_GINTMSK]
@@ -420,13 +388,11 @@ enable_done:
 .globl usb_check_root_port
 usb_check_root_port:
     push {r4-r11, lr}
-    
     ldr r4, =USB_BASE
     ldr r1, [r4, #OTG_HPRT]
     
     tst r1, #1
     beq no_device
-    
     tst r1, #4
     beq already_connected
     
@@ -460,7 +426,6 @@ no_device:
 .globl usb_port_reset
 usb_port_reset:
     push {r4-r11, lr}
-    
     ldr r4, =USB_BASE
     ldr r1, [r4, #OTG_HPRT]
     orr r1, r1, #0x00000100
@@ -504,7 +469,6 @@ usb_alloc_urb:
     beq urb_alloc_fail
     
     mov r4, r0
-    
     str r6, [r4, #URB_DEVICE]
     str r7, [r4, #URB_ENDPOINT]
     str r8, [r4, #URB_BUFFER]
@@ -574,6 +538,73 @@ submit_error:
     mov r0, #-1
     pop {r4-r11, pc}
 
+// ========== SCHEDULER ==========
+.globl usb_schedule
+usb_schedule:
+    push {r4-r11, lr}
+    
+    mrs r8, cpsr
+    orr r9, r8, #0x80
+    msr cpsr, r9
+    
+    ldr r4, =usb_channel_mask
+    ldr r5, =usb_pending_queue
+    
+schedule_scan:
+    ldr r6, [r4]
+    mvn r7, r6
+    and r7, r7, #0xFF
+    cmp r7, #0
+    beq schedule_done
+    
+    ldr r8, [r5]
+    cmp r8, #0
+    beq schedule_done
+    
+    mov r9, #0
+find_free:
+    cmp r9, #USB_MAX_CHANNELS
+    bge schedule_scan
+    tst r6, #(1 << r9)
+    beq channel_found
+    add r9, r9, #1
+    b find_free
+
+channel_found:
+    orr r6, r6, #(1 << r9)
+    str r6, [r4]
+    
+    ldr r10, [r8, #URB_NEXT]
+    str r10, [r5]
+    
+    strb r9, [r8, #URB_CHANNEL]
+    
+    ldr r11, =usb_active_queue
+    ldr r12, [r11]
+    str r12, [r8, #URB_NEXT]
+    str r8, [r11]
+    
+    ldr r0, =usb_channels
+    mov r1, #CHAN_SIZE
+    mul r2, r9, r1
+    add r3, r0, r2
+    
+    mov r0, #1
+    str r0, [r3, #CHAN_STATE]
+    str r8, [r3, #CHAN_URB]
+    mov r0, #0
+    str r0, [r3, #CHAN_XFRC]
+    str r0, [r3, #CHAN_CHH]
+    
+    mov r0, r8
+    bl usb_start_transfer
+    
+    b schedule_scan
+
+schedule_done:
+    msr cpsr, r9
+    pop {r4-r11, pc}
+
 // ========== START TRANSFER ==========
 .globl usb_start_transfer
 usb_start_transfer:
@@ -594,8 +625,9 @@ usb_start_transfer:
     ldr r1, [r7, #USB_EP_TYPE]
     ldr r0, [r7, #USB_EP_MAX_PKT]
     
-    // HCCHAR - using base + offset calculation
-    ldr r1, =(OTG_HCCHAR + (r5 * 0x20))
+    // HCCHAR
+    ldr r1, =OTG_HCCHAR_BASE
+    add r1, r1, r5, lsl #5
     ldr r2, [r6, r1]
     
     ldr r3, =0x7FF
@@ -631,7 +663,8 @@ usb_start_transfer:
     cmp r0, #0
     beq no_split
     
-    ldr r1, =(OTG_HCSPLT + (r5 * 0x20))
+    ldr r1, =OTG_HCSPLT_BASE
+    add r1, r1, r5, lsl #5
     ldr r2, [r6, r1]
     ldrb r3, [r4, #URB_HUB_ADDR]
     ldrb r0, [r4, #URB_PORT_NUM]
@@ -657,11 +690,13 @@ no_split:
     lsl r1, r1, #29
     orr r0, r0, r1
     
-    ldr r1, =(OTG_HCTSIZ + (r5 * 0x20))
+    ldr r1, =OTG_HCTSIZ_BASE
+    add r1, r1, r5, lsl #5
     str r0, [r6, r1]
     
     // DMA
-    ldr r1, =(OTG_HCDMA + (r5 * 0x20))
+    ldr r1, =OTG_HCDMA_BASE
+    add r1, r1, r5, lsl #5
     str r9, [r6, r1]
     
     ldr r0, [r7, #USB_EP_DIR]
@@ -675,7 +710,8 @@ no_split:
 enable_channel:
     dsb
     
-    ldr r1, =(OTG_HCCHAR + (r5 * 0x20))
+    ldr r1, =OTG_HCCHAR_BASE
+    add r1, r1, r5, lsl #5
     ldr r0, [r6, r1]
     orr r0, r0, #0x80000000
     str r0, [r6, r1]
@@ -708,7 +744,6 @@ div_ceil_zero:
 .globl usb_handle_irq
 usb_handle_irq:
     push {r4-r11, lr}
-    
     ldr r4, =USB_BASE
     ldr r5, [r4, #OTG_GINTSTS]
     
@@ -752,7 +787,8 @@ usb_handle_channel_irq:
     mov r4, r0
     ldr r5, =USB_BASE
     
-    ldr r6, =(OTG_HCINT + (r4 * 0x20))
+    ldr r6, =OTG_HCINT_BASE
+    add r6, r6, r4, lsl #5
     ldr r7, [r5, r6]
     str r7, [r5, r6]
     
@@ -805,7 +841,8 @@ check_chh:
     cmp r0, #0
     beq irq_done_channel
     
-    ldr r0, =(OTG_HCTSIZ + (r4 * 0x20))
+    ldr r0, =OTG_HCTSIZ_BASE
+    add r0, r0, r4, lsl #5
     ldr r1, [r5, r0]
     and r1, r1, #0x7FFFF
     
@@ -879,11 +916,11 @@ irq_done_channel:
 .globl usb_abort_channel
 usb_abort_channel:
     push {r4-r11, lr}
-    
     ldr r4, =USB_BASE
     mov r5, r0
     
-    ldr r0, =(OTG_HCCHAR + (r5 * 0x20))
+    ldr r0, =OTG_HCCHAR_BASE
+    add r0, r0, r5, lsl #5
     ldr r1, [r4, r0]
     bic r1, r1, #0x80000000
     str r1, [r4, r0]
@@ -892,14 +929,16 @@ usb_abort_channel:
 halt_wait:
     subs r6, r6, #1
     beq halt_done
-    ldr r0, =(OTG_HCINT + (r5 * 0x20))
+    ldr r0, =OTG_HCINT_BASE
+    add r0, r0, r5, lsl #5
     ldr r1, [r4, r0]
     tst r1, #0x20
     bne halt_done
     b halt_wait
 
 halt_done:
-    ldr r0, =(OTG_HCINT + (r5 * 0x20))
+    ldr r0, =OTG_HCINT_BASE
+    add r0, r0, r5, lsl #5
     mov r1, #0x20
     str r1, [r4, r0]
     
@@ -909,7 +948,6 @@ halt_done:
 .globl usb_handle_port_irq
 usb_handle_port_irq:
     push {r4-r11, lr}
-    
     ldr r4, =USB_BASE
     ldr r5, [r4, #OTG_HPRT]
     
@@ -924,7 +962,6 @@ usb_handle_port_irq:
     bl usb_delay_us
     
     bl usb_port_reset
-    // bl usb_enumerate_device
 
 clear_port_irq:
     ldr r5, =0x08000000
@@ -932,86 +969,16 @@ clear_port_irq:
     
     pop {r4-r11, pc}
 
-// ========== SCHEDULER ==========
-.globl usb_schedule
-usb_schedule:
-    push {r4-r11, lr}
-    
-    mrs r8, cpsr
-    orr r9, r8, #0x80
-    msr cpsr, r9
-    
-    ldr r4, =usb_channel_mask
-    ldr r5, =usb_pending_queue
-    
-schedule_scan:
-    ldr r6, [r4]
-    mvn r7, r6
-    and r7, r7, #0xFF
-    cmp r7, #0
-    beq schedule_done
-    
-    ldr r8, [r5]
-    cmp r8, #0
-    beq schedule_done
-    
-    mov r9, #0
-find_free:
-    cmp r9, #USB_MAX_CHANNELS
-    bge schedule_scan
-    tst r6, #(1 << r9)
-    beq channel_found
-    add r9, r9, #1
-    b find_free
-
-channel_found:
-    orr r6, r6, #(1 << r9)
-    str r6, [r4]
-    
-    ldr r10, [r8, #URB_NEXT]
-    str r10, [r5]
-    
-    strb r9, [r8, #URB_CHANNEL]
-    
-    ldr r11, =usb_active_queue
-    ldr r12, [r11]
-    str r12, [r8, #URB_NEXT]
-    str r8, [r11]
-    
-    ldr r0, =usb_channels
-    mov r1, #CHAN_SIZE
-    mul r2, r9, r1
-    add r3, r0, r2
-    
-    mov r0, #1
-    str r0, [r3, #CHAN_STATE]
-    str r8, [r3, #CHAN_URB]
-    mov r0, #0
-    str r0, [r3, #CHAN_XFRC]
-    str r0, [r3, #CHAN_CHH]
-    
-    mov r0, r8
-    bl usb_start_transfer
-    
-    b schedule_scan
-
-schedule_done:
-    msr cpsr, r9
-    pop {r4-r11, pc}
-
 // ========== ENUMERATION ==========
 .globl usb_enumerate_device
 usb_enumerate_device:
     push {r4-r11, lr}
-
-    // Minimal single-device enumeration for HID keyboard bring-up.
     ldr r4, =usb_devices
     ldr r5, =usb_device_count
     ldr r6, [r5]
     cmp r6, #0
     bne enum_done
-
-    // Initialize device 0 as root-port full speed HID.
+    
     mov r7, #1
     str r7, [r4, #USB_DEV_ADDR]
     mov r7, #1
@@ -1022,15 +989,13 @@ usb_enumerate_device:
     str r7, [r4, #USB_DEV_CLASS]
     mov r7, #8
     str r7, [r4, #USB_DEV_MAX_PACKET]
-
+    
     mov r7, #1
     str r7, [r5]
-
-    // Hand off to HID/keyboard stack.
+    
     mov r0, r4
     bl hid_probe
-
-    // Print status line.
+    
     ldr r0, __framebuffer_info
     ldr r1, [r0]
     ldr r2, [r0, #4]
@@ -1040,7 +1005,6 @@ usb_enumerate_device:
 enum_done:
     pop {r4-r11, pc}
 
-// Minimal control transfer shim used by HID and keyboard setup.
 .globl usb_control_transfer
 usb_control_transfer:
     push {lr}
