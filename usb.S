@@ -1,6 +1,6 @@
 // usb.S - Complete USB host stack for Raspberry Pi 1
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
-// CORRECTED for Clang compilation - All register-shifted constants replaced with runtime shifts
+// CORRECTED for Clang compilation - .ltorg after every function
 
 // ========== DWC OTG REGISTERS ==========
 .equ USB_BASE,              0x20098000
@@ -176,11 +176,12 @@ clean_loop:
     add r4, r4, #CACHE_LINE_SIZE
     b clean_loop
 clean_done:
-    // ARMv6-compatible barriers (DSB/ISB replacements)
+    // ARMv6-compatible barriers
     mov r0, #0
-    mcr p15, 0, r0, c7, c10, 4  // Drain write buffer (DSB equivalent)
-    mcr p15, 0, r0, c7, c5, 4   // Flush prefetch buffer (ISB equivalent)
+    mcr p15, 0, r0, c7, c10, 4
+    mcr p15, 0, r0, c7, c5, 4
     pop {r4-r6, pc}
+.ltorg
 
 .globl invalidate_dcache_range
 invalidate_dcache_range:
@@ -196,11 +197,11 @@ inval_loop:
     add r4, r4, #CACHE_LINE_SIZE
     b inval_loop
 inval_done:
-    // ARMv6-compatible barriers (DSB/ISB replacements)
     mov r0, #0
-    mcr p15, 0, r0, c7, c10, 4  // Drain write buffer (DSB equivalent)
-    mcr p15, 0, r0, c7, c5, 4   // Flush prefetch buffer (ISB equivalent)
+    mcr p15, 0, r0, c7, c10, 4
+    mcr p15, 0, r0, c7, c5, 4
     pop {r4-r6, pc}
+.ltorg
 
 // ========== DELAY ==========
 .globl usb_delay_us
@@ -211,6 +212,7 @@ delay_loop:
     subs r4, r4, #1
     bne delay_loop
     pop {r4, pc}
+.ltorg
 
 // ========== MAIN INITIALIZATION ==========
 .globl usb_init
@@ -284,6 +286,7 @@ usb_init:
     bl usb_delay_us
     
     pop {r4-r11, pc}
+.ltorg
 
 // ========== HCD RESET ==========
 .globl usb_hcd_reset
@@ -291,7 +294,6 @@ usb_hcd_reset:
     push {r4-r11, lr}
     ldr r4, =USB_BASE
     
-    // Load large constant from literal pool
     ldr r5, =10000
 ahb_idle_wait:
     ldr r1, [r4, #OTG_GRSTCTL]
@@ -304,7 +306,6 @@ ahb_idle_done:
     ldr r1, =0x00000001
     str r1, [r4, #OTG_GRSTCTL]
     
-    // Load large constant from literal pool
     ldr r5, =100000
 reset_wait:
     ldr r1, [r4, #OTG_GRSTCTL]
@@ -317,6 +318,7 @@ reset_done:
     ldr r0, =50000
     bl usb_delay_us
     pop {r4-r11, pc}
+.ltorg
 
 // ========== HCD INIT ==========
 .globl usb_hcd_init
@@ -353,6 +355,7 @@ usb_hcd_init:
     str r1, [r4, #OTG_HFIR]
     
     pop {r4-r11, pc}
+.ltorg
 
 // ========== PORT POWER ==========
 .globl usb_port_power_on
@@ -363,6 +366,7 @@ usb_port_power_on:
     orr r1, r1, #0x00001000
     str r1, [r4, #OTG_HPRT]
     pop {r4-r11, pc}
+.ltorg
 
 // ========== ENABLE INTERRUPTS ==========
 .globl usb_enable_interrupts
@@ -389,6 +393,7 @@ enable_done_irq:
     str r5, [r4, #OTG_GINTMSK]
     
     pop {r4-r11, pc}
+.ltorg
 
 // ========== PORT MANAGEMENT ==========
 .globl usb_check_root_port
@@ -428,6 +433,7 @@ already_connected:
 no_device:
     mov r0, #0
     pop {r4-r11, pc}
+.ltorg
 
 .globl usb_port_reset
 usb_port_reset:
@@ -447,7 +453,6 @@ usb_port_reset:
     ldr r0, =20000
     bl usb_delay_us
     
-    // Load large constant from literal pool
     ldr r5, =100000
 enable_wait:
     ldr r1, [r4, #OTG_HPRT]
@@ -458,6 +463,7 @@ enable_wait:
 
 enable_done:
     pop {r4-r11, pc}
+.ltorg
 
 // ========== URB ALLOCATION ==========
 .globl usb_alloc_urb
@@ -511,6 +517,7 @@ urb_no_split:
 urb_alloc_fail:
     mov r0, #0
     pop {r4-r11, pc}
+.ltorg
 
 // ========== SUBMIT URB ==========
 .globl usb_submit_urb
@@ -544,6 +551,7 @@ usb_submit_urb:
 submit_error:
     mov r0, #-1
     pop {r4-r11, pc}
+.ltorg
 
 // ========== SCHEDULER ==========
 .globl usb_schedule
@@ -573,7 +581,6 @@ find_free:
     cmp r9, #USB_MAX_CHANNELS
     bge schedule_scan
     
-    // Runtime shift for bit test
     mov r14, #1
     lsl r14, r14, r9
     tst r6, r14
@@ -583,7 +590,6 @@ find_free:
     b find_free
 
 channel_found:
-    // Runtime shift for bit set
     mov r14, #1
     lsl r14, r14, r9
     orr r6, r6, r14
@@ -620,6 +626,7 @@ channel_found:
 schedule_done:
     msr cpsr, r9
     pop {r4-r11, pc}
+.ltorg
 
 // ========== START TRANSFER ==========
 .globl usb_start_transfer
@@ -646,7 +653,6 @@ usb_start_transfer:
     add r1, r1, r5, lsl #5
     ldr r2, [r6, r1]
     
-    // Load mask constants from literal pool
     ldr r3, =0x7FF
     bic r2, r2, r3
     ldr r3, =0x7800
@@ -658,7 +664,6 @@ usb_start_transfer:
     ldr r3, =0x1FC00000
     bic r2, r2, r3
     
-    // Load mask for and operations
     ldr r3, =0x7FF
     and r3, r0, r3
     orr r2, r2, r3
@@ -703,7 +708,6 @@ no_split:
     mov r14, r0
     
     mov r0, r10
-    // Load mask for packet count
     ldr r1, =0x3FF
     and r1, r14, r1
     lsl r1, r1, #19
@@ -730,7 +734,6 @@ no_split:
     bl clean_dcache_range
 
 enable_channel:
-    // ARMv6-compatible barrier (DSB equivalent)
     mov r0, #0
     mcr p15, 0, r0, c7, c10, 4
     
@@ -741,6 +744,7 @@ enable_channel:
     str r0, [r6, r1]
     
     pop {r4-r11, pc}
+.ltorg
 
 // ========== DIV CEIL ==========
 usb_div_ceil:
@@ -763,6 +767,7 @@ div_check:
 div_ceil_zero:
     mov r0, #0
     pop {r2-r4, pc}
+.ltorg
 
 // ========== INTERRUPT HANDLER ==========
 .globl usb_handle_irq
@@ -786,7 +791,6 @@ chan_irq_loop:
     cmp r7, #USB_MAX_CHANNELS
     bge chan_irq_done
     
-    // Runtime shift for bit test
     mov r14, #1
     lsl r14, r14, r7
     tst r6, r14
@@ -806,6 +810,7 @@ chan_irq_done:
 irq_done:
     bl usb_schedule
     pop {r4-r11, pc}
+.ltorg
 
 // ========== CHANNEL IRQ HANDLER ==========
 .globl usb_handle_channel_irq
@@ -872,7 +877,6 @@ check_chh:
     ldr r0, =OTG_HCTSIZ_BASE
     add r0, r0, r4, lsl #5
     ldr r1, [r5, r0]
-    // Load mask for remaining bytes
     ldr r2, =0x7FFFF
     and r1, r1, r2
     
@@ -931,7 +935,6 @@ channel_cleanup:
     ldr r0, =usb_channel_mask
     ldr r1, [r0]
     
-    // Runtime shift for bit clear
     mov r14, #1
     lsl r14, r14, r4
     bic r1, r1, r14
@@ -946,6 +949,7 @@ channel_cleanup:
 
 irq_done_channel:
     pop {r4-r11, pc}
+.ltorg
 
 // ========== ABORT CHANNEL ==========
 .globl usb_abort_channel
@@ -960,7 +964,6 @@ usb_abort_channel:
     bic r1, r1, #0x80000000
     str r1, [r4, r0]
     
-    // Load large constant from literal pool
     ldr r6, =10000
 halt_wait:
     subs r6, r6, #1
@@ -979,6 +982,7 @@ halt_done:
     str r1, [r4, r0]
     
     pop {r4-r11, pc}
+.ltorg
 
 // ========== PORT IRQ HANDLER ==========
 .globl usb_handle_port_irq
@@ -1004,6 +1008,7 @@ clear_port_irq:
     str r5, [r4, #OTG_GINTSTS]
     
     pop {r4-r11, pc}
+.ltorg
 
 // ========== ENUMERATION ==========
 .globl usb_enumerate_device
@@ -1040,12 +1045,14 @@ usb_enumerate_device:
 
 enum_done:
     pop {r4-r11, pc}
+.ltorg
 
 .globl usb_control_transfer
 usb_control_transfer:
     push {lr}
     mov r0, #0
     pop {pc}
+.ltorg
 
 .globl usb_free_urb
 usb_free_urb:
@@ -1053,6 +1060,7 @@ usb_free_urb:
     mov r1, #URB_SIZE
     bl buddy_free
     pop {pc}
+.ltorg
 
 // ========== MESSAGES ==========
 .section ".rodata"
@@ -1061,5 +1069,5 @@ usb_connect_msg:       .asciz "USB: Device connected\n"
 usb_enum_success_msg:  .asciz "USB: Device enumerated\n"
 usb_enum_fail_msg:     .asciz "USB: Enumeration failed\n"
 
-// Literal pool for large constants
+// Final literal pool
 .ltorg
