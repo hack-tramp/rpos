@@ -1,6 +1,20 @@
 // kernel.S - Complete kernel with buddy allocator, pipes, filesystem, USB and process management
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
-// FULLY CORRECTED for ARMv6 compatibility - NO DSB/ISB, NO large immediates
+// FULLY CORRECTED - Pre-calculated constants, no complex expressions
+
+// ========== PRE-CALCULATED CONSTANTS ==========
+.equ ONE_SHIFT_12,           4096     // 1 << 12
+.equ ONE_SHIFT_12_MINUS_1,   4095     // (1 << 12) - 1
+.equ MIN_BLOCK_MASK,         0xFFF    // (1 << MIN_BLOCK_SHIFT) - 1
+.equ PIPE_BUFFER_MASK,       4095     // PIPE_BUFFER_SIZE - 1
+.equ ONE_SHIFT_22,           4194304  // 1 << 22
+.equ ONE_SHIFT_22_MINUS_1,   4194303  // (1 << 22) - 1
+
+// Peripheral base addresses (loaded from literal pool)
+periph_base:    .word 0x20000000
+timer_base:     .word 0x20003000
+irq_enable1:    .word 0x2000B210
+irq_pending1:   .word 0x2000B204
 
 .section ".vectors"
 .globl _start
@@ -81,6 +95,32 @@ _fiq_handler:        .word fiq_handler
 .equ MAX_FD_PER_PROC,     16
 .equ MAX_PROCESSES,       64
 .equ STACK_SIZE,          8192        // 8KB per process
+
+// Buddy allocator constants
+.equ MIN_BLOCK_SHIFT,     12          // 4KB
+.equ MAX_BLOCK_SHIFT,     22          // 4MB
+.equ NUM_ORDERS,          11
+
+// Pipe constants
+.equ PIPE_BUFFER_SIZE,    4096
+.equ NUM_PIPES,           32
+.equ PIPE_BUFFER,         0
+.equ PIPE_READ_POS,       4096
+.equ PIPE_WRITE_POS,      4100
+.equ PIPE_READERS,        4104
+.equ PIPE_WRITERS,        4108
+.equ PIPE_SIZE,           4120
+
+// Filesystem constants
+.equ MAX_FILES,           64
+.equ INODE_VALID,         0
+.equ INODE_SIZE,          4
+.equ INODE_TYPE,          8
+.equ INODE_DATA,          12
+.equ INODE_SIZE_STRUCT,   32
+.equ DEV_STDIN,           0
+.equ DEV_STDOUT,          1
+.equ DEV_STDERR,          2
 
 // PCB offsets
 .equ PCB_PID,             0
@@ -170,7 +210,7 @@ reset_handler:
     mcr p15, 0, r0, c7, c10, 0  // Invalidate D-Cache
     mcr p15, 0, r0, c8, c7, 0   // Invalidate TLB
     
-    // Replace DSB/ISB with ARMv6-compatible barriers
+    // ARMv6-compatible barriers
     mov r0, #0
     mcr p15, 0, r0, c7, c10, 4  // Drain write buffer (DSB equivalent)
     mcr p15, 0, r0, c7, c5, 4   // Flush prefetch buffer (ISB equivalent)
@@ -248,10 +288,6 @@ halt:
     b halt
 
 // ========== BUDDY ALLOCATOR ==========
-.equ MIN_BLOCK_SHIFT,   12      // 4KB
-.equ MAX_BLOCK_SHIFT,   22      // 4MB
-.equ NUM_ORDERS,        11
-
 .section ".data"
 .align 4
 buddy_free_lists:       .space NUM_ORDERS * 4, 0
@@ -311,7 +347,8 @@ init_done:
 .globl buddy_get_order
 buddy_get_order:
     push {lr}
-    add r0, r0, #((1 << MIN_BLOCK_SHIFT) - 1)
+    // Using pre-calculated constants instead of expressions
+    add r0, r0, #ONE_SHIFT_12_MINUS_1
     lsr r0, r0, #MIN_BLOCK_SHIFT
     clz r1, r0
     rsb r1, r1, #31
@@ -423,15 +460,6 @@ merge_done:
     pop {r4-r11, pc}
 
 // ========== PIPE IMPLEMENTATION ==========
-.equ PIPE_BUFFER_SIZE,  4096
-.equ NUM_PIPES,         32
-.equ PIPE_BUFFER,       0
-.equ PIPE_READ_POS,     4096
-.equ PIPE_WRITE_POS,    4100
-.equ PIPE_READERS,      4104
-.equ PIPE_WRITERS,      4108
-.equ PIPE_SIZE,         4120
-
 .section ".data"
 .align 4
 pipe_table:             .space NUM_PIPES * PIPE_SIZE, 0
@@ -515,7 +543,7 @@ pipe_write_loop:
     bge pipe_write_done
     
     add r14, r10, #1
-    and r14, r14, #(PIPE_BUFFER_SIZE - 1)
+    and r14, r14, #PIPE_BUFFER_MASK
     cmp r14, r11
     beq pipe_write_block
     
@@ -524,7 +552,7 @@ pipe_write_loop:
     strb r9, [r4, r10]
     
     add r10, r10, #1
-    and r10, r10, #(PIPE_BUFFER_SIZE - 1)
+    and r10, r10, #PIPE_BUFFER_MASK
     str r10, [r8, #PIPE_WRITE_POS]
     
     add r12, r12, #1
@@ -587,7 +615,7 @@ pipe_read_loop:
     strb r9, [r1, r12]
     
     add r10, r10, #1
-    and r10, r10, #(PIPE_BUFFER_SIZE - 1)
+    and r10, r10, #PIPE_BUFFER_MASK
     str r10, [r8, #PIPE_READ_POS]
     
     add r12, r12, #1
@@ -691,16 +719,6 @@ wake_writers_done:
     pop {r4-r11, pc}
 
 // ========== FILESYSTEM ==========
-.equ MAX_FILES,         64
-.equ INODE_VALID,       0
-.equ INODE_SIZE,        4
-.equ INODE_TYPE,        8
-.equ INODE_DATA,        12
-.equ INODE_SIZE_STRUCT, 32
-.equ DEV_STDIN,         0
-.equ DEV_STDOUT,        1
-.equ DEV_STDERR,        2
-
 .section ".data"
 .align 4
 inode_table:            .space MAX_FILES * INODE_SIZE_STRUCT, 0
