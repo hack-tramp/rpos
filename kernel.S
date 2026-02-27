@@ -1,6 +1,6 @@
 // kernel.S - Complete kernel with buddy allocator, pipes, filesystem, USB and process management
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
-// FULLY CORRECTED - No invalid ARM immediates, no register-shifted constants
+// FULLY CORRECTED - No complex addressing modes, all loads use separate address calculation
 
 // ========== PRE-CALCULATED CONSTANTS ==========
 .equ ONE_SHIFT_12,           4096     // 1 << 12
@@ -332,7 +332,11 @@ init_lists:
     cmp r5, #NUM_ORDERS
     bge init_done
     mov r0, #0
-    str r0, [r4, r5, lsl #2]
+    
+    // Fixed: Separate address calculation
+    add r14, r4, r5, lsl #2
+    str r0, [r14]
+    
     add r5, r5, #1
     b init_lists
     
@@ -375,7 +379,11 @@ buddy_alloc:
 search_loop:
     cmp r6, #NUM_ORDERS
     bhs alloc_fail
-    ldr r7, [r5, r6, lsl #2]
+    
+    // Fixed: Separate address calculation
+    add r14, r5, r6, lsl #2
+    ldr r7, [r14]
+    
     cmp r7, #0
     bne found_block
     add r6, r6, #1
@@ -383,7 +391,10 @@ search_loop:
 
 found_block:
     ldr r8, [r7]
-    str r8, [r5, r6, lsl #2]
+    
+    // Fixed: Separate address calculation
+    add r14, r5, r6, lsl #2
+    str r8, [r14]
     
 split_loop:
     cmp r6, r4
@@ -394,9 +405,17 @@ split_loop:
     mov r10, #1
     lsl r10, r10, r9
     add r11, r7, r10
-    ldr r12, [r5, r6, lsl #2]
+    
+    // Fixed: Separate address calculation
+    add r14, r5, r6, lsl #2
+    ldr r12, [r14]
+    
     str r11, [r11]
-    str r12, [r5, r6, lsl #2]
+    
+    // Fixed: Separate address calculation
+    add r14, r5, r6, lsl #2
+    str r12, [r14]
+    
     b split_loop
 
 split_done:
@@ -454,9 +473,15 @@ merge_loop:
     beq merge_done
 
 merge_done:
-    ldr r8, [r11, r12, lsl #2]
+    // Fixed: Separate address calculation
+    add r14, r11, r12, lsl #2
+    ldr r8, [r14]
+    
     str r0, [r0]
-    str r8, [r11, r12, lsl #2]
+    
+    // Fixed: Separate address calculation
+    add r14, r11, r12, lsl #2
+    str r8, [r14]
     
     pop {r4-r11, pc}
 
