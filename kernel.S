@@ -1,6 +1,6 @@
 // kernel.S - Complete kernel with buddy allocator, pipes, filesystem, USB and process management
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
-// FULLY CORRECTED - All expressions pre-calculated, no << operators
+// FULLY CORRECTED - No invalid ARM immediates, no register-shifted constants
 
 // ========== PRE-CALCULATED CONSTANTS ==========
 .equ ONE_SHIFT_12,           4096     // 1 << 12
@@ -488,13 +488,22 @@ pipe_create:
 find_pipe:
     cmp r6, #NUM_PIPES
     bge pipe_create_fail
-    tst r5, #(1 << r6)
+    
+    // Fixed: Use runtime shift instead of #(1 << r6)
+    mov r14, #1
+    lsl r14, r14, r6
+    tst r5, r14
+    
     beq pipe_found
     add r6, r6, #1
     b find_pipe
 
 pipe_found:
-    orr r5, r5, #(1 << r6)
+    // Fixed: Use runtime shift instead of #(1 << r6)
+    mov r14, #1
+    lsl r14, r14, r6
+    orr r5, r5, r14
+    
     str r5, [r4]
     ldr r7, =pipe_table
     mov r8, #PIPE_SIZE
@@ -530,6 +539,7 @@ pipe_write:
     mul r7, r4, r6
     add r8, r5, r7
     
+    // Load large constants from literal pool
     ldr r9, [r8, #PIPE_WRITERS]
     cmp r9, #0
     beq pipe_write_error
@@ -544,6 +554,7 @@ pipe_write_loop:
     bge pipe_write_done
     
     add r14, r10, #1
+    // Use pre-calculated constant for mask
     and r14, r14, #PIPE_BUFFER_MASK
     cmp r14, r11
     beq pipe_write_block
