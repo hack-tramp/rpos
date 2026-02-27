@@ -1,4 +1,4 @@
-name: Build Raspberry Pi Kernel (GNU ARM)
+name: Build Raspberry Pi Kernel (Clang)
 
 on:
   push:
@@ -10,31 +10,47 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install GNU ARM toolchain
+      - name: Install Clang + LLVM tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi make
+          sudo apt-get install -y clang lld llvm
 
       - name: Build kernel
         run: |
           set -e
-          
-          # Assemble and link
-          # Use -Wa,-march=armv6zk+sec to enable DSB/ISB
-          arm-none-eabi-gcc -mcpu=arm1176jzf-s -march=armv6zk -marm -ffreestanding -nostdlib \
-            -Wa,-march=armv6zk -D__ARM_ARCH_6K__ -T kernel.ld kernel.S -o kernel.elf
 
-          
-          # Create raw binary for Pi boot
-          arm-none-eabi-objcopy -O binary kernel.elf kernel.img
-          
-          # Generate listing for debugging
-          arm-none-eabi-objdump -D kernel.elf > kernel.list
+          TARGET=arm-none-eabi
+          CPU=arm1176jzf-s
+          CFLAGS="--target=$TARGET -mcpu=$CPU -ffreestanding -nostdlib -I."
+
+          echo "Assembling sources..."
+
+          clang $CFLAGS -c -x assembler-with-cpp kernel.S -o kernel.o
+          clang $CFLAGS -c -x assembler-with-cpp usb.S -o usb.o
+          clang $CFLAGS -c -x assembler-with-cpp hid.S -o hid.o
+          clang $CFLAGS -c -x assembler-with-cpp keyboard.S -o keyboard.o
+
+          echo "Linking..."
+
+          clang --target=$TARGET -mcpu=$CPU -nostdlib \
+                -Wl,-T,kernel.ld \
+                kernel.o usb.o hid.o keyboard.o \
+                -o kernel.elf
+
+          echo "Generating binary image..."
+
+          llvm-objcopy -O binary kernel.elf kernel.img
+
+          echo "Generating disassembly listing..."
+
+          llvm-objdump -D kernel.elf > kernel.list
+
+          echo "Build complete."
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
