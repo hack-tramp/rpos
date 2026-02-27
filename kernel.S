@@ -1,6 +1,6 @@
 // kernel.S - Complete kernel with buddy allocator, pipes, filesystem, USB and process management
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
-// FULLY CORRECTED - Pre-calculated constants, no complex expressions
+// FULLY CORRECTED - All expressions pre-calculated, no << operators
 
 // ========== PRE-CALCULATED CONSTANTS ==========
 .equ ONE_SHIFT_12,           4096     // 1 << 12
@@ -9,6 +9,7 @@
 .equ PIPE_BUFFER_MASK,       4095     // PIPE_BUFFER_SIZE - 1
 .equ ONE_SHIFT_22,           4194304  // 1 << 22
 .equ ONE_SHIFT_22_MINUS_1,   4194303  // (1 << 22) - 1
+.equ MIN_BLOCK_SHIFT_MINUS_12, 0     // MIN_BLOCK_SHIFT - 12 = 0
 
 // Peripheral base addresses (loaded from literal pool)
 periph_base:    .word 0x20000000
@@ -347,7 +348,7 @@ init_done:
 .globl buddy_get_order
 buddy_get_order:
     push {lr}
-    // Using pre-calculated constants instead of expressions
+    // Using pre-calculated constants - no expressions
     add r0, r0, #ONE_SHIFT_12_MINUS_1
     lsr r0, r0, #MIN_BLOCK_SHIFT
     clz r1, r0
@@ -357,7 +358,7 @@ buddy_get_order:
     cmp r0, r2
     moveq r0, r1
     addne r0, r1, #1
-    add r0, r0, #(MIN_BLOCK_SHIFT - 12)
+    add r0, r0, #MIN_BLOCK_SHIFT_MINUS_12
     pop {pc}
 
 .globl buddy_alloc
