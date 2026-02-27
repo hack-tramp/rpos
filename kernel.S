@@ -247,10 +247,12 @@ clear_bss:
     
     // ========== INITIALIZE FRAMEBUFFER ==========
     bl fb_init
-    str r0, __framebuffer_info
+    ldr r14, =__framebuffer_info
+    str r0, [r14]
     
     // Print welcome message
-    ldr r0, __framebuffer_info
+    ldr r14, =__framebuffer_info
+    ldr r0, [r14]
     ldr r1, [r0]
     ldr r2, [r0, #4]
     ldr r3, =welcome_msg
@@ -262,7 +264,8 @@ clear_bss:
     bl fs_init
     
     // ========== INITIALIZE USB ==========
-    ldr r0, __framebuffer_info
+    ldr r14, =__framebuffer_info
+    ldr r0, [r14]
     ldr r1, [r0]
     ldr r2, [r0, #4]
     ldr r3, =usb_start_msg
@@ -615,7 +618,8 @@ pipe_write_loop:
     b pipe_write_loop
 
 pipe_write_block:
-    ldr r0, __current_process
+    ldr r14, =__current_process
+    ldr r0, [r14]
     ldr r1, [r0]
     mov r2, #PROC_BLOCKED_PIPE
     str r2, [r1, #PCB_STATE]
@@ -685,7 +689,8 @@ pipe_read_loop:
     b pipe_read_loop
 
 pipe_read_block:
-    ldr r0, __current_process
+    ldr r14, =__current_process
+    ldr r0, [r14]
     ldr r1, [r0]
     mov r2, #PROC_BLOCKED_PIPE
     str r2, [r1, #PCB_STATE]
@@ -1143,11 +1148,14 @@ sys_write:
     cmp r0, #1
     bne syscall_return
     
-    ldr r3, __framebuffer_info
+    ldr r14, =__framebuffer_info
+    ldr r3, [r14]
     ldr r4, [r3]
     ldr r5, [r3, #4]
-    ldr r6, __cursor_x
-    ldr r7, __cursor_y
+    ldr r14, =__cursor_x
+    ldr r6, [r14]
+    ldr r14, =__cursor_y
+    ldr r7, [r14]
     
     mov r8, r1
     mov r9, r2
@@ -1181,8 +1189,10 @@ write_newline:
     b write_loop
 
 write_done:
-    str r6, __cursor_x
-    str r7, __cursor_y
+    ldr r14, =__cursor_x
+    str r6, [r14]
+    ldr r14, =__cursor_y
+    str r7, [r14]
     mov r0, r9
     b syscall_return
 
@@ -1309,8 +1319,10 @@ fb_fail:
 
 fb_print_string:
     push {r4-r11, lr}
-    ldr r4, __cursor_x
-    ldr r5, __cursor_y
+    ldr r14, =__cursor_x
+    ldr r4, [r14]
+    ldr r14, =__cursor_y
+    ldr r5, [r14]
 print_char:
     ldrb r6, [r3], #1
     cmp r6, #0
@@ -1335,8 +1347,10 @@ print_newline:
     movgt r5, #0
     b print_char
 print_done:
-    str r4, __cursor_x
-    str r5, __cursor_y
+    ldr r14, =__cursor_x
+    str r4, [r14]
+    ldr r14, =__cursor_y
+    str r5, [r14]
     pop {r4-r11, pc}
 
 // ========== UTILITY ==========
