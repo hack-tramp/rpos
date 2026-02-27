@@ -25,8 +25,10 @@ jobs:
           set -e
           
           # Assemble and link
-          arm-none-eabi-gcc -mcpu=arm1176jzf-s -march=armv6zk -mfpu=vfp -ffreestanding -nostdlib \
-             -Wa,-march=armv6zk -T kernel.ld kernel.S -o kernel.elf
+          # Use -Wa,-march=armv6zk+sec to enable DSB/ISB
+          arm-none-eabi-gcc -mcpu=arm1176jzf-s -march=armv6zk -marm -ffreestanding -nostdlib \
+            -Wa,-march=armv6zk+sec -T kernel.ld kernel.S -o kernel.elf
+
           
           # Create raw binary for Pi boot
           arm-none-eabi-objcopy -O binary kernel.elf kernel.img
