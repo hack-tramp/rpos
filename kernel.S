@@ -565,11 +565,15 @@ pipe_found:
     add r10, r7, r9
     
     mov r11, #0
-    str r11, [r10, #PIPE_READ_POS]
-    str r11, [r10, #PIPE_WRITE_POS]
+    ldr r14, =PIPE_READ_POS
+    str r11, [r10, r14]
+    ldr r14, =PIPE_WRITE_POS
+    str r11, [r10, r14]
     mov r11, #1
-    str r11, [r10, #PIPE_READERS]
-    str r11, [r10, #PIPE_WRITERS]
+    ldr r14, =PIPE_READERS
+    str r11, [r10, r14]
+    ldr r14, =PIPE_WRITERS
+    str r11, [r10, r14]
     
     mov r0, r6, lsl #16
     orr r0, r0, #0x8000
