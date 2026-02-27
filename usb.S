@@ -1,6 +1,6 @@
 // usb.S - Complete USB host stack for Raspberry Pi 1
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
-// CORRECTED for Clang compilation - All ARMv6 compatibility fixes applied
+// CORRECTED for Clang compilation - All register-shifted constants replaced with runtime shifts
 
 // ========== DWC OTG REGISTERS ==========
 .equ USB_BASE,              0x20098000
@@ -373,7 +373,7 @@ usb_enable_interrupts:
     mov r5, #0
 enable_chan_irq:
     cmp r5, #USB_MAX_CHANNELS
-    bge enable_done
+    bge enable_done_irq
     
     ldr r6, =OTG_HCINTMSK_BASE
     add r6, r6, r5, lsl #5
@@ -383,7 +383,7 @@ enable_chan_irq:
     add r5, r5, #1
     b enable_chan_irq
 
-enable_done:
+enable_done_irq:
     ldr r5, =0x0C000000
     str r5, [r4, #OTG_HAINTMSK]
     str r5, [r4, #OTG_GINTMSK]
@@ -572,13 +572,22 @@ schedule_scan:
 find_free:
     cmp r9, #USB_MAX_CHANNELS
     bge schedule_scan
-    tst r6, #(1 << r9)
+    
+    // Runtime shift for bit test
+    mov r14, #1
+    lsl r14, r14, r9
+    tst r6, r14
+    
     beq channel_found
     add r9, r9, #1
     b find_free
 
 channel_found:
-    orr r6, r6, #(1 << r9)
+    // Runtime shift for bit set
+    mov r14, #1
+    lsl r14, r14, r9
+    orr r6, r6, r14
+    
     str r6, [r4]
     
     ldr r10, [r8, #URB_NEXT]
@@ -777,7 +786,11 @@ chan_irq_loop:
     cmp r7, #USB_MAX_CHANNELS
     bge chan_irq_done
     
-    tst r6, #(1 << r7)
+    // Runtime shift for bit test
+    mov r14, #1
+    lsl r14, r14, r7
+    tst r6, r14
+    
     beq chan_irq_next
     mov r0, r7
     bl usb_handle_channel_irq
@@ -917,7 +930,12 @@ urb_found:
 channel_cleanup:
     ldr r0, =usb_channel_mask
     ldr r1, [r0]
-    bic r1, r1, #(1 << r4)
+    
+    // Runtime shift for bit clear
+    mov r14, #1
+    lsl r14, r14, r4
+    bic r1, r1, r14
+    
     str r1, [r0]
     
     mov r1, #0
