@@ -1,6 +1,21 @@
 // kernel.S - Complete kernel with buddy allocator, pipes, filesystem, USB and process management
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
-// FULLY CORRECTED - No complex addressing modes, all loads use separate address calculation
+// FIXED: All symbols exported, fs_open removed, direct FD initialization
+
+// ========== GLOBAL EXPORTS ==========
+.globl __framebuffer_info
+.globl fb_print_string
+.globl memset
+.globl buddy_alloc
+.globl buddy_free
+.globl pipe_create
+.globl pipe_wake_readers
+.globl pipe_wake_writers
+.globl scheduler_yield
+.globl usb_check_root_port
+.globl usb_handle_irq
+.globl __current_process
+.globl __process_table
 
 // ========== PRE-CALCULATED CONSTANTS ==========
 .equ ONE_SHIFT_12,           4096     // 1 << 12
@@ -550,15 +565,11 @@ pipe_found:
     add r10, r7, r9
     
     mov r11, #0
-    ldr r14, =PIPE_READ_POS
-    str r11, [r10, r14]
-    ldr r14, =PIPE_WRITE_POS
-    str r11, [r10, r14]
+    str r11, [r10, #PIPE_READ_POS]
+    str r11, [r10, #PIPE_WRITE_POS]
     mov r11, #1
-    ldr r14, =PIPE_READERS
-    str r11, [r10, r14]
-    ldr r14, =PIPE_WRITERS
-    str r11, [r10, r14]
+    str r11, [r10, #PIPE_READERS]
+    str r11, [r10, #PIPE_WRITERS]
     
     mov r0, r6, lsl #16
     orr r0, r0, #0x8000
@@ -936,32 +947,17 @@ slot_found:
     str r8, [r10, #PCB_FD14]
     str r8, [r10, #PCB_FD15]
     
-    // Open stdin (fd 0)
-    sub sp, sp, #4
-    mov r0, #'0'
-    strb r0, [sp]
-    mov r0, sp
-    mov r1, #0
-    bl fs_open
-    str r0, [r10, #PCB_FD0]
+    // DIRECT FD INITIALIZATION - NO fs_open CALLS
+    // Set stdin (fd 0) to 0
+    str r8, [r10, #PCB_FD0]  // Already 0 from above
     
-    // Open stdout (fd 1)
-    mov r0, #'1'
-    strb r0, [sp]
-    mov r0, sp
-    mov r1, #0
-    bl fs_open
-    str r0, [r10, #PCB_FD1]
+    // Set stdout (fd 1) to 1
+    mov r8, #1
+    str r8, [r10, #PCB_FD1]
     
-    // Open stderr (fd 2)
-    mov r0, #'2'
-    strb r0, [sp]
-    mov r0, sp
-    mov r1, #0
-    bl fs_open
-    str r0, [r10, #PCB_FD2]
-    
-    add sp, sp, #4
+    // Set stderr (fd 2) to 2
+    mov r8, #2
+    str r8, [r10, #PCB_FD2]
     
     mov r0, r7  // Return PID
     pop {r4-r11, pc}
@@ -1356,6 +1352,7 @@ print_done:
     pop {r4-r11, pc}
 
 // ========== UTILITY ==========
+.globl memset
 memset:
     cmp r2, #0
     bxeq lr
