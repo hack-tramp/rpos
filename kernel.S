@@ -1,6 +1,6 @@
 // kernel.S - Complete kernel with buddy allocator, pipes, filesystem, USB and process management
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
-// FULLY CORRECTED for GNU Assembler syntax - NO complex indexed addressing
+// FULLY CORRECTED for ARMv6 compatibility - NO DSB/ISB, NO large immediates
 
 .section ".vectors"
 .globl _start
@@ -169,8 +169,11 @@ reset_handler:
     mcr p15, 0, r0, c7, c5, 0   // Invalidate I-Cache
     mcr p15, 0, r0, c7, c10, 0  // Invalidate D-Cache
     mcr p15, 0, r0, c8, c7, 0   // Invalidate TLB
-    dsb
-    isb
+    
+    // Replace DSB/ISB with ARMv6-compatible barriers
+    mov r0, #0
+    mcr p15, 0, r0, c7, c10, 4  // Drain write buffer (DSB equivalent)
+    mcr p15, 0, r0, c7, c5, 4   // Flush prefetch buffer (ISB equivalent)
     
     // ========== CLEAR BSS ==========
     ldr r0, =__bss_start
@@ -256,6 +259,9 @@ buddy_base:             .word 0
 buddy_size:             .word 0
 buddy_bitmap:           .word 0
 buddy_bitmap_size:      .word 0
+
+// Literal pool for large constants
+.ltorg
 
 .section ".text"
 .globl buddy_init
@@ -624,7 +630,6 @@ wake_readers_loop:
     cmp r6, #MAX_PROCESSES
     bge wake_readers_done
     
-    // Calculate PCB address - FIXED
     lsl r7, r6, #7
     add r8, r5, r7
     
@@ -660,7 +665,6 @@ wake_writers_loop:
     cmp r6, #MAX_PROCESSES
     bge wake_writers_done
     
-    // Calculate PCB address - FIXED
     lsl r7, r6, #7
     add r8, r5, r7
     
@@ -761,6 +765,9 @@ __process_table:        .space MAX_PROCESSES * PCB_SIZE, 0
 __current_process:      .word -1
 __next_pid:             .word 1
 
+// Literal pool for large constants
+.ltorg
+
 .section ".text"
 .globl process_init
 process_init:
@@ -783,7 +790,6 @@ find_slot:
     cmp r5, #MAX_PROCESSES
     bge create_fail
     
-    // Calculate PCB address - FIXED
     lsl r6, r5, #7
     add r7, r4, r6
     
@@ -799,7 +805,6 @@ slot_found:
     add r8, r7, #1
     str r8, [r6]
     
-    // Calculate PCB address again - FIXED
     lsl r9, r5, #7
     add r10, r4, r9
     
@@ -884,7 +889,6 @@ find_ready:
     cmp r5, #MAX_PROCESSES
     bge idle_loop
     
-    // Calculate PCB address - FIXED
     lsl r6, r5, #7
     add r7, r4, r6
     
@@ -930,7 +934,6 @@ scheduler_yield:
     beq yield_no_current
     
     ldr r2, =__process_table
-    // Calculate PCB address - FIXED
     lsl r3, r1, #7
     add r4, r2, r3
     
@@ -960,7 +963,6 @@ yield_find:
     cmp r5, #MAX_PROCESSES
     bge idle_yield
     
-    // Calculate PCB address - FIXED
     lsl r6, r5, #7
     add r7, r4, r6
     
@@ -1124,7 +1126,6 @@ sys_exit:
     beq exit_yield
     
     ldr r2, =__process_table
-    // Calculate PCB address - FIXED
     lsl r3, r1, #7
     add r4, r2, r3
     
@@ -1314,6 +1315,9 @@ pipe_test_msg:      .asciz "Hello pipe!"
 received_msg:       .asciz "Received: "
 usb_start_msg:      .asciz "USB: Starting multi-device stack...\n"
 
+// Literal pool for large constants
+.ltorg
+
 .section ".bss"
 .align 4
 buffer:             .space 64, 0
@@ -1331,3 +1335,6 @@ __svc_stack_top:
 
 __heap_start:       .space 0x100000
 __heap_end:
+
+// Final literal pool
+.ltorg
