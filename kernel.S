@@ -1,6 +1,6 @@
 // kernel.S - Complete kernel with buddy allocator, pipes, filesystem, USB and process management
 // Target: Raspberry Pi 1 (ARM1176JZF-S), 256MB RAM
-// FIXED for GNU Assembler syntax with working process management
+// FULLY CORRECTED for GNU Assembler syntax - NO complex indexed addressing
 
 .section ".vectors"
 .globl _start
@@ -82,7 +82,7 @@ _fiq_handler:        .word fiq_handler
 .equ MAX_PROCESSES,       64
 .equ STACK_SIZE,          8192        // 8KB per process
 
-// PCB offsets - simplified for GAS compatibility
+// PCB offsets
 .equ PCB_PID,             0
 .equ PCB_STATE,           4
 .equ PCB_SP,              8
@@ -624,9 +624,8 @@ wake_readers_loop:
     cmp r6, #MAX_PROCESSES
     bge wake_readers_done
     
-    // Calculate PCB address
-    mov r7, r6
-    lsl r7, r7, #7  // Multiply by 128 (PCB_SIZE)
+    // Calculate PCB address - FIXED
+    lsl r7, r6, #7
     add r8, r5, r7
     
     ldr r9, [r8, #PCB_PID]
@@ -661,9 +660,8 @@ wake_writers_loop:
     cmp r6, #MAX_PROCESSES
     bge wake_writers_done
     
-    // Calculate PCB address
-    mov r7, r6
-    lsl r7, r7, #7
+    // Calculate PCB address - FIXED
+    lsl r7, r6, #7
     add r8, r5, r7
     
     ldr r9, [r8, #PCB_PID]
@@ -785,9 +783,8 @@ find_slot:
     cmp r5, #MAX_PROCESSES
     bge create_fail
     
-    // Calculate PCB address
-    mov r6, r5
-    lsl r6, r6, #7
+    // Calculate PCB address - FIXED
+    lsl r6, r5, #7
     add r7, r4, r6
     
     ldr r8, [r7, #PCB_PID]
@@ -802,9 +799,8 @@ slot_found:
     add r8, r7, #1
     str r8, [r6]
     
-    // Calculate PCB address again
-    mov r9, r5
-    lsl r9, r9, #7
+    // Calculate PCB address again - FIXED
+    lsl r9, r5, #7
     add r10, r4, r9
     
     str r7, [r10, #PCB_PID]
@@ -888,8 +884,8 @@ find_ready:
     cmp r5, #MAX_PROCESSES
     bge idle_loop
     
-    mov r6, r5
-    lsl r6, r6, #7
+    // Calculate PCB address - FIXED
+    lsl r6, r5, #7
     add r7, r4, r6
     
     ldr r8, [r7, #PCB_STATE]
@@ -934,8 +930,8 @@ scheduler_yield:
     beq yield_no_current
     
     ldr r2, =__process_table
-    mov r3, r1
-    lsl r3, r3, #7
+    // Calculate PCB address - FIXED
+    lsl r3, r1, #7
     add r4, r2, r3
     
     // Save context
@@ -964,8 +960,8 @@ yield_find:
     cmp r5, #MAX_PROCESSES
     bge idle_yield
     
-    mov r6, r5
-    lsl r6, r6, #7
+    // Calculate PCB address - FIXED
+    lsl r6, r5, #7
     add r7, r4, r6
     
     ldr r8, [r7, #PCB_STATE]
@@ -1128,8 +1124,8 @@ sys_exit:
     beq exit_yield
     
     ldr r2, =__process_table
-    mov r3, r1
-    lsl r3, r3, #7
+    // Calculate PCB address - FIXED
+    lsl r3, r1, #7
     add r4, r2, r3
     
     mov r5, #PROC_ZOMBIE
