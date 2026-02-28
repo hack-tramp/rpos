@@ -218,8 +218,10 @@ delay_loop:
 .globl usb_init
 usb_init:
     push {r4-r11, lr}
-    
-    ldr r0, __framebuffer_info
+    mov r4, r0               // Save framebuffer_info pointer
+
+    // Print status using passed framebuffer
+    mov r0, r4
     ldr r1, [r0]
     ldr r2, [r0, #4]
     ldr r3, =usb_init_msg
@@ -399,6 +401,7 @@ enable_done_irq:
 .globl usb_check_root_port
 usb_check_root_port:
     push {r4-r11, lr}
+    mov r4, r0               // Save framebuffer pointer
     ldr r4, =USB_BASE
     ldr r1, [r4, #OTG_HPRT]
     
@@ -411,7 +414,7 @@ usb_check_root_port:
     orr r1, r1, #4
     str r1, [r4, #OTG_HPRT]
     
-    ldr r0, __framebuffer_info
+    mov r0, r4
     ldr r1, [r0]
     ldr r2, [r0, #4]
     ldr r3, =usb_connect_msg
@@ -1014,6 +1017,7 @@ clear_port_irq:
 .globl usb_enumerate_device
 usb_enumerate_device:
     push {r4-r11, lr}
+    mov r4, r0               // Save framebuffer pointer
     ldr r4, =usb_devices
     ldr r5, =usb_device_count
     ldr r6, [r5]
@@ -1037,7 +1041,7 @@ usb_enumerate_device:
     mov r0, r4
     bl hid_probe
     
-    ldr r0, __framebuffer_info
+    mov r0, r4
     ldr r1, [r0]
     ldr r2, [r0, #4]
     ldr r3, =usb_enum_success_msg
