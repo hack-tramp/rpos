@@ -285,7 +285,8 @@ clear_bss:
     ldr r2, [r0, #4]
     ldr r3, =usb_start_msg
     bl fb_print_string
-    
+
+    ldr r0, [r14]           // Pass framebuffer info to usb_init
     bl usb_init
     
     // ========== ENABLE INTERRUPTS ==========
@@ -1010,6 +1011,8 @@ run_process:
     movs pc, lr
 
 idle_loop:
+    ldr r14, =__framebuffer_info
+    ldr r0, [r14]           // Pass framebuffer info as parameter
     bl usb_check_root_port
     wfi
     b idle_loop
